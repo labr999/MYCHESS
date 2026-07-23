@@ -2,6 +2,9 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="UTF-8">
+<!-- 選用：與本檔同資料夾若放有 coi-serviceworker.js，會自動取得跨來源隔離（COOP/COEP），
+     讓「啟用 Pikafish 引擎」可用。檔案不存在時此行靜默略過，不影響其他功能。 -->
+<script src="coi-serviceworker.js" onerror="window.__coiMissing=true"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>象棋開局譜</title>
 <style>
@@ -396,6 +399,10 @@
     <label class="ctrl-label">開局分類（含棋譜／影片）</label>
     <select id="categorySelect"></select>
   </div>
+  <div class="ctrl-group">
+    <label class="ctrl-label">棋子樣式</label>
+    <select id="themeSelect"></select>
+  </div>
 </div>
 
 <div class="board-wrap">
@@ -413,6 +420,7 @@
 </div>
 <div id="checkBanner" style="display:none;text-align:center;margin:6px auto 0;max-width:560px;padding:7px 12px;border-radius:8px;font-weight:800;font-size:.88rem;letter-spacing:.12em;"></div>
 <div id="openingReco" style="display:none;text-align:center;margin:6px auto 0;max-width:560px;padding:5px 12px;border-radius:8px;background:rgba(201,162,39,.12);border:1px solid rgba(201,162,39,.4);color:#E8CD7A;font-size:.76rem;"></div>
+<div id="extLibNote" style="display:none;text-align:center;margin:6px auto 0;max-width:560px;padding:5px 12px;border-radius:8px;background:rgba(90,150,120,.14);border:1px solid rgba(120,200,160,.35);color:#A8E0C0;font-size:.72rem;"></div>
 
 <div class="analysis-panel" id="analysisPanel">
   <h3>⚡ 即時局勢分析
@@ -421,9 +429,26 @@
   </h3>
   <div class="eval-bar-wrap"><div class="eval-bar" id="evalBar"></div></div>
   <div class="eval-text" id="evalText">開始記譜後將即時顯示雙方局勢評分</div>
+  <div id="evalCurveWrap" style="display:none;margin-top:8px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;font-size:.66rem;color:#C9B48A;margin-bottom:3px;">
+      <span>形勢曲線（紅上黑下，點擊可跳至該步）</span><span id="curveNote"></span>
+    </div>
+    <svg id="evalCurve" viewBox="0 0 300 64" preserveAspectRatio="none" style="width:100%;height:64px;display:block;border-radius:8px;background:rgba(0,0,0,.22);border:1px solid rgba(201,162,39,.28);cursor:pointer;"></svg>
+  </div>
   <div id="bestMoves"></div>
   <div id="pvLine" style="display:none;margin-top:6px;padding:6px 10px;border-radius:8px;background:rgba(80,140,180,.12);border:1px solid rgba(120,180,220,.3);font-size:.74rem;line-height:1.6;color:#CDE6F5;"></div>
   <div id="coachMsg" style="display:none;margin-top:8px;padding:7px 12px;border-radius:8px;background:rgba(0,0,0,.25);border:1px solid #C9A227;font-size:.8rem;"></div>
+  <div style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+    <label style="display:flex;align-items:center;gap:6px;font-size:.76rem;color:#E8CD7A;cursor:pointer;">
+      <input type="checkbox" id="chkSpeak" style="cursor:pointer;"> 🔊 語音提示
+    </label>
+    <label style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#C9B48A;">
+      語速 <input type="range" id="rngRate" min="0.6" max="1.6" step="0.1" value="1" style="width:88px;cursor:pointer;">
+      <span id="rateVal">1.0×</span>
+    </label>
+    <button id="btnSpeakTest" style="background:rgba(201,162,39,.18);color:#E8CD7A;border:1px solid rgba(201,162,39,.5);border-radius:7px;padding:4px 10px;font-size:.7rem;cursor:pointer;font-family:inherit;">試聽</button>
+    <span id="speakHint" style="font-size:.66rem;color:#C9B48A;"></span>
+  </div>
   <div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
     <button id="btnPikaEngine" style="background:linear-gradient(180deg,#1f7a5a,#124a37);color:#EAFFF6;border:1px solid #4FC79A;border-radius:8px;padding:7px 14px;font-size:.78rem;font-weight:700;cursor:pointer;font-family:inherit;">🐟 啟用 Pikafish 引擎（最強）</button>
     <span id="pikaEngineHint" style="font-size:.68rem;color:#C9B48A;">點擊載入約 1.6MB 引擎，之後每步用真實 Pikafish 分析</span>
@@ -1083,7 +1108,7 @@ function renderBoard(){
 
   if(idx>0){
     const last = movesArr[idx-1];
-    html += `<circle cx="${X(dC(last.to[0]))}" cy="${Y(dR(last.to[1]))}" r="27" fill="none" stroke="#C9A227" stroke-width="2.5" opacity="0.85"/>`;
+    html += `<circle id="lastRing" cx="${X(dC(last.to[0]))}" cy="${Y(dR(last.to[1]))}" r="27" fill="none" stroke="#C9A227" stroke-width="2.5" opacity="0.85"/>`;
   }
   if(recording && selectedPos){
     html += `<circle cx="${X(dC(selectedPos[0]))}" cy="${Y(dR(selectedPos[1]))}" r="28" fill="none" stroke="#6FCF6F" stroke-width="3"/>`;
@@ -1102,19 +1127,38 @@ function renderBoard(){
       </g>`;
   });
 
+  const isStepForward = idx>0 && _prevAnimIdx===idx-1 && _prevAnimMode===(recording?'rec':'play');
+
+  /* 吃子淡出殘影：前進一步且該步有吃子時，於原地留下被吃棋子淡出 */
+  let ghost = '';
+  if(isStepForward){
+    const last = movesArr[idx-1];
+    const before = computeBoardAt(idx-1, movesArr);
+    const cap = before.find(p=>p.col===last.to[0] && p.row===last.to[1]);
+    if(cap){
+      const gx=X(dC(cap.col)), gy=Y(dR(cap.row));
+      const gTxt = cap.side==='r' ? '#F7E7C9' : '#E4C874';
+      ghost = `<g id="capGhost" style="pointer-events:none;">
+        <circle cx="${gx}" cy="${gy}" r="24" fill="url(#g-${cap.side==='r'?'r':'b'})" stroke="#C9A227" stroke-width="1.5"/>
+        <text x="${gx}" y="${gy+8}" font-size="22" fill="${gTxt}" font-family='"Noto Serif TC",serif' font-weight="700" text-anchor="middle">${cap.type}</text>
+      </g>`;
+    }
+  }
+
+  const TH = PIECE_THEMES[pieceTheme] || PIECE_THEMES.classic;
   svg.innerHTML = `
     <defs>
       <radialGradient id="g-r" cx="35%" cy="30%" r="75%">
-        <stop offset="0%" stop-color="#D6584F"/><stop offset="100%" stop-color="#7E2A24"/>
+        <stop offset="0%" stop-color="${TH.r0}"/><stop offset="100%" stop-color="${TH.r1}"/>
       </radialGradient>
       <radialGradient id="g-b" cx="35%" cy="30%" r="75%">
-        <stop offset="0%" stop-color="#4A4A47"/><stop offset="100%" stop-color="#141412"/>
+        <stop offset="0%" stop-color="${TH.b0}"/><stop offset="100%" stop-color="${TH.b1}"/>
       </radialGradient>
     </defs>
-    ${html}`;
+    ${html}${ghost}`;
 
   /* 走子動畫：僅在往前走一步時播放（跳步/倒退不動畫） */
-  if(idx>0 && _prevAnimIdx===idx-1 && _prevAnimMode===(recording?'rec':'play') && window.requestAnimationFrame){
+  if(isStepForward && window.requestAnimationFrame){
     const g = svg.querySelector('g[data-anim]');
     if(g){
       const last = movesArr[idx-1];
@@ -1127,6 +1171,28 @@ function renderBoard(){
         g.style.transform='translate(0,0)';
       });});
     }
+    /* 吃子殘影淡出＋縮小 */
+    const gh = svg.querySelector('#capGhost');
+    if(gh){
+      gh.style.transformOrigin = X(dC(movesArr[idx-1].to[0]))+'px '+Y(dR(movesArr[idx-1].to[1]))+'px';
+      gh.style.transition='none';
+      gh.style.opacity='1';
+      requestAnimationFrame(()=>{ requestAnimationFrame(()=>{
+        gh.style.transition='opacity .42s ease, transform .42s ease';
+        gh.style.opacity='0';
+        gh.style.transform='scale(.55)';
+      });});
+    }
+    /* 最後一步閃光 */
+    const ring = svg.querySelector('#lastRing');
+    if(ring){
+      ring.style.transition='none';
+      ring.setAttribute('r','16'); ring.style.opacity='1'; ring.style.strokeWidth='4';
+      requestAnimationFrame(()=>{ requestAnimationFrame(()=>{
+        ring.style.transition='r .45s ease-out, opacity .45s ease-out, stroke-width .45s ease-out';
+        ring.setAttribute('r','27'); ring.style.strokeWidth='2.5';
+      });});
+    }
   }
   _prevAnimIdx = idx; _prevAnimMode = recording?'rec':'play';
 
@@ -1137,25 +1203,43 @@ function renderBoard(){
   if(st){
     const who = stmSide==='r' ? '紅方' : '黑方';
     const winner = stmSide==='r' ? '黑方' : '紅方';
+    let txt;
     if(st==='mate'){
-      banner.textContent='☠ 絕殺！'+who+'無解，'+winner+'勝';
+      txt='☠ 絕殺！'+who+'無解，'+winner+'勝';
+      banner.textContent=txt;
       banner.style.cssText+=';display:block;background:rgba(160,30,30,.35);border:1px solid #E05050;color:#FFB4B4;';
     } else {
-      banner.textContent='⚠ '+who+'被將軍';
+      txt='⚠ '+who+'被將軍';
+      banner.textContent=txt;
       banner.style.cssText+=';display:block;background:rgba(201,120,39,.25);border:1px solid #E0A050;color:#FFD9A0;';
     }
+    /* 語音播報：同一局面只念一次 */
+    const key=(recording?'r':'p')+':'+idx+':'+st;
+    if(_lastCheckSpoken!==key){ _lastCheckSpoken=key; speak(txt); }
   } else {
     banner.style.display='none';
+    _lastCheckSpoken='';
   }
 
   updateOpeningReco(movesArr.slice(0, idx).map(m=>m.notation));
+  renderEvalCurve(movesArr.slice(0, recording?idx:movesArr.length), idx);
 
   updateTransportUI();
   if(!recording && currentMoves.length>0) analyzePosition();   // 播放文字棋譜時即時分析當前局面
 }
 
 /* 走子動畫狀態 */
-var _prevAnimIdx = -1, _prevAnimMode = '', _lastAnimBase='';
+var _prevAnimIdx = -1, _prevAnimMode = '', _lastAnimBase='', _lastCheckSpoken='';
+
+/* ---------- 棋子主題 ---------- */
+const PIECE_THEMES = {
+  classic:{name:'典藏木',   r0:'#D6584F', r1:'#7E2A24', b0:'#4A4A47', b1:'#141412'},
+  rosewood:{name:'紫檀',    r0:'#B4574A', r1:'#5A241E', b0:'#5C4033', b1:'#241610'},
+  jade:{name:'玉石',        r0:'#E88C7D', r1:'#9C453A', b0:'#7BA88F', b1:'#2C4A3A'},
+  ink:{name:'水墨',         r0:'#EDE4D4', r1:'#B9A98F', b0:'#8A8A86', b1:'#2A2A28'},
+  tournament:{name:'比賽木', r0:'#E8C98F', r1:'#B08A4A', b0:'#C9B48A', b1:'#6E5A38'}
+};
+let pieceTheme = 'classic';
 
 /* ---------- 即時開局辨識 ---------- */
 function updateOpeningReco(tokens){
@@ -1364,6 +1448,64 @@ svg.addEventListener('click', e=>{
 
 /* ---------- AI 教練 ---------- */
 let lastRootAnalysis = null;   // {ply, stm, all:[{m,score}], topNotation}
+/* ==================== 語音提示（Web Speech API） ==================== */
+const SPEECH = { on:false, voice:null, rate:1.0, ready:false, supported:('speechSynthesis' in window) };
+
+function pickChineseVoice(){
+  if(!SPEECH.supported) return null;
+  const vs = window.speechSynthesis.getVoices() || [];
+  if(!vs.length) return null;
+  /* 優先序：台灣國語 → 粵語/香港 → 其他中文 → 系統預設 */
+  const pref = [/zh[-_]TW/i, /cmn[-_]?Hant/i, /zh[-_]HK/i, /zh[-_]CN/i, /^zh/i];
+  for(const re of pref){
+    const v = vs.find(x=>re.test(x.lang||''));
+    if(v) return v;
+  }
+  return null;
+}
+function initSpeechVoices(){
+  if(!SPEECH.supported) return;
+  const apply=()=>{
+    SPEECH.voice = pickChineseVoice();
+    SPEECH.ready = true;
+    const hint=document.getElementById('speakHint');
+    if(hint && SPEECH.on){
+      hint.textContent = SPEECH.voice
+        ? '語音：'+(SPEECH.voice.name||SPEECH.voice.lang)
+        : '找不到中文語音，將以系統預設語音朗讀';
+    }
+  };
+  apply();
+  if(!SPEECH.voice && typeof window.speechSynthesis.addEventListener==='function'){
+    window.speechSynthesis.addEventListener('voiceschanged', apply, {once:true});
+  }
+}
+
+/* 將畫面訊息轉為適合朗讀的純文字 */
+function speechText(html){
+  return String(html)
+    .replace(/<[^>]*>/g,'')
+    .replace(/[✔✓⚠△☠🎯📚⏳🐟★]/g,'')
+    .replace(/：/g,'，')
+    .replace(/／/g,'或')
+    .replace(/\s+/g,' ')
+    .trim();
+}
+function speak(text, opts){
+  if(!SPEECH.on || !SPEECH.supported) return;
+  const t = speechText(text);
+  if(!t) return;
+  try{
+    if(!(opts && opts.queue)) window.speechSynthesis.cancel();   // 預設打斷前一句，避免積壓
+    const u = new SpeechSynthesisUtterance(t);
+    if(SPEECH.voice) u.voice = SPEECH.voice;
+    u.lang = (SPEECH.voice && SPEECH.voice.lang) || 'zh-TW';
+    u.rate = SPEECH.rate;
+    u.pitch = 1.0;
+    window.speechSynthesis.speak(u);
+  }catch(e){ /* 語音失敗不影響其他功能 */ }
+}
+
 function showCoach(msg, kind){
   const el = document.getElementById('coachMsg');
   if(!el) return;
@@ -1371,8 +1513,14 @@ function showCoach(msg, kind){
   el.style.borderColor = kind==='warn' ? '#E05050' : kind==='good' ? '#5CB85C' : '#C9A227';
   el.style.color = kind==='warn' ? '#FFB4B4' : kind==='good' ? '#BBE8BB' : '#E8CD7A';
   el.innerHTML = msg;
+  speak(msg);
   clearTimeout(showCoach._t);
   showCoach._t = setTimeout(()=>{ el.style.display='none'; }, 6000);
+}
+/* 依評分損失換算「此著正確率」（損失越小越接近 100%） */
+function moveAccuracy(lossCp){
+  const l = Math.max(0, lossCp);
+  return Math.max(15, Math.round(100 * Math.exp(-l/260)));
 }
 function coachFeedback(from, to, notation, pieces, sideToMove){
   const la = lastRootAnalysis;
@@ -1380,13 +1528,19 @@ function coachFeedback(from, to, notation, pieces, sideToMove){
   const played = la.all.find(s=>s.m.fc===from[0]&&s.m.fr===from[1]&&s.m.tc===to[0]&&s.m.tr===to[1]);
   if(!played) return;
   const best = la.all[0];
-  const lossCp = best.score - played.score;
-  if(best.m.fc===from[0]&&best.m.fr===from[1]&&best.m.tc===to[0]&&best.m.tr===to[1]){
-    showCoach('✔ '+notation+'：正是引擎首選！', 'good');
+  const lossCp = Math.max(0, best.score - played.score);
+  const acc = moveAccuracy(lossCp);
+  const isBest = best.m.fc===from[0]&&best.m.fr===from[1]&&best.m.tc===to[0]&&best.m.tr===to[1];
+  const accTag = '<span style="opacity:.85;">此著正確率 '+acc+'%</span>';
+
+  if(isBest){
+    showCoach('✔ '+notation+'：正是引擎首選！'+accTag, 'good');
   } else if(lossCp >= 120){
-    showCoach('⚠ '+notation+'：此步約損失 '+(lossCp/100).toFixed(1)+' 分，建議改走 <b>'+la.topNotation+'</b>', 'warn');
+    showCoach('⚠ '+notation+'：此步會損失 '+(lossCp/100).toFixed(2)+' 分，建議改走 <b>'+la.topNotation+'</b>。'+accTag, 'warn');
   } else if(lossCp >= 40){
-    showCoach('△ '+notation+'：可行，但 <b>'+la.topNotation+'</b> 稍優（差約 '+(lossCp/100).toFixed(1)+' 分）', '');
+    showCoach('△ '+notation+'：可行，但 <b>'+la.topNotation+'</b> 稍優（差約 '+(lossCp/100).toFixed(2)+' 分）。'+accTag, '');
+  } else {
+    showCoach('○ '+notation+'：好棋，與首選相當。'+accTag, 'good');
   }
 }
 
@@ -2238,6 +2392,162 @@ async function tryCloudAnalysis(pieces, stm, seq){
   }catch(err){ /* 雲庫不可用時保留內建引擎結果 */ }
 }
 
+/* ==================== 形勢曲線（勝率圖） ==================== */
+let _curveCache = {key:'', vals:[]};
+
+function computeEvalCurve(movesArr){
+  const key = movesArr.map(m=>m.notation).join(',');
+  if(_curveCache.key===key) return _curveCache.vals;
+  const vals=[];
+  for(let i=0;i<=movesArr.length;i++){
+    const pieces = computeBoardAt(i, movesArr);
+    const side = i%2===0 ? 'r' : 'b';
+    const b = buildBoard(pieces);
+    const sc = qsearch(b, side, -Infinity, Infinity, 4);
+    vals.push(side==='r' ? sc : -sc);   // 統一為紅方視角
+  }
+  _curveCache = {key, vals};
+  return vals;
+}
+
+function renderEvalCurve(movesArr, curIdx){
+  const wrap=document.getElementById('evalCurveWrap');
+  const svg=document.getElementById('evalCurve');
+  if(!wrap||!svg) return;
+  if(!movesArr || movesArr.length<1){ wrap.style.display='none'; return; }
+  wrap.style.display='block';
+  const vals=computeEvalCurve(movesArr);
+  const W=300, H=64, mid=H/2;
+  const n=vals.length;
+  const x=i=> n<=1 ? 0 : (i/(n-1))*W;
+  const y=v=> mid - (mid-4)*Math.tanh(v/400);   // 壓縮到 ±(mid-4)
+
+  let area='', line='';
+  vals.forEach((v,i)=>{
+    const px=x(i).toFixed(1), py=y(v).toFixed(1);
+    line += (i===0?'M':'L')+px+' '+py+' ';
+  });
+  area = 'M0 '+mid+' ' + vals.map((v,i)=>'L'+x(i).toFixed(1)+' '+y(v).toFixed(1)+' ').join('') + 'L'+W+' '+mid+' Z';
+
+  const curX = x(Math.max(0, Math.min(curIdx, n-1)));
+  const curV = vals[Math.max(0, Math.min(curIdx, n-1))];
+
+  svg.innerHTML =
+    '<defs>'+
+      '<linearGradient id="cvR" x1="0" y1="0" x2="0" y2="1">'+
+        '<stop offset="0%" stop-color="#D6584F" stop-opacity=".55"/><stop offset="100%" stop-color="#D6584F" stop-opacity="0"/>'+
+      '</linearGradient>'+
+      '<clipPath id="cvTop"><rect x="0" y="0" width="'+W+'" height="'+mid+'"/></clipPath>'+
+      '<clipPath id="cvBot"><rect x="0" y="'+mid+'" width="'+W+'" height="'+mid+'"/></clipPath>'+
+    '</defs>'+
+    '<path d="'+area+'" fill="url(#cvR)" clip-path="url(#cvTop)"/>'+
+    '<path d="'+area+'" fill="#E4C874" fill-opacity=".28" clip-path="url(#cvBot)"/>'+
+    '<line x1="0" y1="'+mid+'" x2="'+W+'" y2="'+mid+'" stroke="#C9A227" stroke-width="0.6" stroke-dasharray="3 3" opacity=".55"/>'+
+    '<path d="'+line+'" fill="none" stroke="#F0D48A" stroke-width="1.4" stroke-linejoin="round"/>'+
+    '<line x1="'+curX.toFixed(1)+'" y1="0" x2="'+curX.toFixed(1)+'" y2="'+H+'" stroke="#8FC8E8" stroke-width="1"/>'+
+    '<circle cx="'+curX.toFixed(1)+'" cy="'+y(curV).toFixed(1)+'" r="2.6" fill="#8FC8E8"/>';
+
+  const note=document.getElementById('curveNote');
+  if(note) note.textContent = '第 '+Math.max(0,Math.min(curIdx,n-1))+' 步　紅方 '+(curV>=0?'+':'')+(curV/100).toFixed(2);
+
+  /* 點擊跳步（僅播放模式；記譜模式不跳） */
+  svg.onclick = (ev)=>{
+    if(recording) return;
+    const rect=svg.getBoundingClientRect();
+    const ratio=(ev.clientX-rect.left)/rect.width;
+    const target=Math.round(ratio*(n-1));
+    currentIndex=Math.max(0, Math.min(target, currentMoves.length));
+    stopPlay();
+    renderMovesList();
+    renderBoard();
+  };
+}
+
+/* ==================== 外部 JSON 棋庫（選用） ====================
+   與本檔同資料夾若有 openings/index.json，啟動時自動載入並併入分類。
+   格式：index.json = ["pingfengma.json", "liepao.json", ...]
+   每份棋譜檔 = { "games":[ {"side":"先手","category":"中砲對屏風馬",
+                            "name":"對局名","tokens":["炮二平五","馬8進7",...]} ] }
+   檔案不存在（file:// 或未部署）時靜默略過，不影響內建棋譜。          */
+async function loadExternalOpenings(){
+  try{
+    if(location.protocol==='file:') return;                    // 本機開啟時 fetch 受限，直接略過
+    const idxResp = await fetch('openings/index.json', {cache:'no-store'});
+    if(!idxResp.ok) return;
+    const files = await idxResp.json();
+    if(!Array.isArray(files) || !files.length) return;
+    let added=0, failed=0;
+    for(const f of files){
+      try{
+        const r = await fetch('openings/'+f, {cache:'no-store'});
+        if(!r.ok){ failed++; continue; }
+        const data = await r.json();
+        const games = Array.isArray(data) ? data : (data.games||[]);
+        for(const g of games){
+          if(!g || !g.side || !g.category || !Array.isArray(g.tokens)) { failed++; continue; }
+          const res = addImportedGame(g.side, g.category, g.name || ('外部棋譜#'+(added+1)), g.tokens, false);
+          if(res.ok) added++; else failed++;
+        }
+      }catch(e){ failed++; }
+    }
+    if(added>0){
+      populateCategories();
+      refreshImportCategoryOptions();
+      const el=document.getElementById('extLibNote');
+      if(el){
+        el.style.display='block';
+        el.textContent='📚 已從外部棋庫載入 '+added+' 局'+(failed ? '（'+failed+' 局解析失敗）' : '');
+      }
+    }
+  }catch(e){ /* 無外部棋庫：靜默略過 */ }
+}
+/* ---------- 語音提示控制項 ---------- */
+(function initSpeechUI(){
+  const chk=document.getElementById('chkSpeak');
+  const rng=document.getElementById('rngRate');
+  const rv=document.getElementById('rateVal');
+  const hint=document.getElementById('speakHint');
+  const btn=document.getElementById('btnSpeakTest');
+  if(!chk) return;
+  if(!SPEECH.supported){
+    chk.disabled=true; if(rng) rng.disabled=true; if(btn) btn.disabled=true;
+    if(hint) hint.textContent='此瀏覽器不支援語音合成';
+    return;
+  }
+  chk.addEventListener('change', ()=>{
+    SPEECH.on = chk.checked;
+    if(SPEECH.on){
+      initSpeechVoices();
+      speak('語音提示已開啟');
+      if(hint && SPEECH.voice) hint.textContent='語音：'+(SPEECH.voice.name||SPEECH.voice.lang);
+    }else{
+      try{ window.speechSynthesis.cancel(); }catch(e){}
+      if(hint) hint.textContent='';
+    }
+  });
+  if(rng) rng.addEventListener('input', ()=>{
+    SPEECH.rate=parseFloat(rng.value);
+    if(rv) rv.textContent=SPEECH.rate.toFixed(1)+'×';
+  });
+  if(btn) btn.addEventListener('click', ()=>{
+    if(!SPEECH.on){ chk.checked=true; SPEECH.on=true; initSpeechVoices(); }
+    speak('炮二平五，正是引擎首選，此著正確率 96%');
+  });
+  initSpeechVoices();
+})();
+
+(function initThemeSelect(){
+  const sel=document.getElementById('themeSelect');
+  if(!sel) return;
+  sel.innerHTML = Object.keys(PIECE_THEMES).map(k=>'<option value="'+k+'">'+PIECE_THEMES[k].name+'</option>').join('');
+  sel.value = pieceTheme;
+  sel.addEventListener('change', ()=>{
+    pieceTheme = sel.value;
+    _prevAnimIdx = -1;      // 切換主題時不播放走子動畫
+    renderBoard();
+  });
+})();
+
 /* ==================== Pikafish / Fairy-Stockfish WASM 引擎 ==================== */
 /* 座標: 引擎 file a-i = col 0-8; rank 1-10, 紅底線=rank1 → row = 10 - rank        */
 /* （注意與 chessdb 的 rank 0-9 差 1，故此處與 uciToCoords 分開）                    */
@@ -2256,16 +2566,21 @@ function coordsToPfMove(from,to){
 }
 function pfSend(cmd){ if(PF.engine) PF.engine.postMessage(cmd); }
 
+/* 判斷目前環境為何無法跨來源隔離，回傳原因代碼供 UI 說明 */
+function pfIsolationStatus(){
+  if(self.crossOriginIsolated) return 'ok';
+  if(location.protocol==='file:') return 'file';            // 本機雙擊開啟：SW 不可用
+  if(!('serviceWorker' in navigator)) return 'nosw';
+  if(navigator.serviceWorker.controller) return 'reload';   // 已有 SW 接管，重整一次即可隔離
+  return 'noheaders';                                       // 缺 COOP/COEP 且未附 coi-serviceworker.js
+}
+
 async function pfEnsureCrossOriginIsolated(){
   if(self.crossOriginIsolated) return true;
-  if(location.protocol==='file:' || !('serviceWorker' in navigator)) return false;
-  try{
-    const swUrl = PF.wasmBase.replace('fairy-stockfish-nnue.wasm@1.1.11/','coi-serviceworker@0.1.7/coi-serviceworker.min.js');
-    const code = await (await fetch(swUrl)).text();
-    const blobUrl = URL.createObjectURL(new Blob([code], {type:'text/javascript'}));
-    await navigator.serviceWorker.register(blobUrl, {scope:'./'});
-    return false;  // 註冊後需重新載入頁面才會 isolated
-  }catch(e){ return false; }
+  /* 跨來源隔離只能由伺服器標頭或「同源」的 coi-serviceworker.js 取得。         */
+  /* 瀏覽器不允許以 blob:／跨網域腳本註冊 Service Worker，故此處不再嘗試註冊， */
+  /* 改由部署包中的同源 coi-serviceworker.js 於頁面載入時自動處理。             */
+  return false;
 }
 
 async function pfLoad(){
@@ -2376,10 +2691,22 @@ function pfUpdateUI(){
     loading:['⏳ Pikafish 載入中…','正在下載並初始化引擎，首次約需數秒'],
     ready:['✓ Pikafish 引擎已啟用','分析改用真實引擎，顯示深度與主變化（PV）'],
     failed:['🐟 重試載入 Pikafish','載入失敗，請檢查網路後重試'],
-    unsupported:['🐟 Pikafish（需 https 環境）','file:// 或無 COOP/COEP 標頭時無法啟用多執行緒引擎；內建引擎＋雲庫仍照常運作。']
+    unsupported:['🐟 Pikafish（此環境無法啟用）','']
   };
   const [t,h]=map[PF.state]||map.idle;
   btn.textContent=t;
+  if(PF.state==='unsupported'){
+    const why = pfIsolationStatus();
+    const msg = {
+      file:'目前是以 file:// 本機開啟，瀏覽器不允許 Service Worker，無法取得多執行緒所需的跨來源隔離。請改放到 https 靜態託管（GitHub Pages、Netlify、Cloudflare Pages 等）。',
+      nosw:'此瀏覽器不支援 Service Worker，無法取得跨來源隔離。內建引擎＋雲庫仍照常運作。',
+      reload:'跨來源隔離元件已就緒，請重新整理頁面一次即可啟用。',
+      noheaders:'此網站缺少 COOP/COEP 標頭。請將 coi-serviceworker.js 與本檔放在同一資料夾（GitHub Pages 適用），或在託管服務設定 _headers／vercel.json。',
+      ok:''
+    }[why] || '';
+    hint.textContent = msg;
+    return;
+  }
   btn.disabled = PF.state==='loading' || PF.state==='ready';
   btn.style.opacity = (PF.state==='ready') ? '.7' : '1';
   hint.textContent=h;
@@ -2491,9 +2818,8 @@ document.getElementById('btnPikaEngine').addEventListener('click', async ()=>{
     if((recording && recordedMoves.length>0) || (!recording && currentMoves.length>0) || recording){
       analyzePosition();
     }
-  } else if(PF.state==='unsupported' && location.protocol!=='file:' && 'serviceWorker' in navigator){
-    /* 已註冊 coi-serviceworker，提示重新載入以取得跨來源隔離 */
-    document.getElementById('pikaEngineHint').innerHTML='已安裝跨來源隔離元件，請<b>重新整理頁面</b>一次即可啟用 Pikafish 引擎。';
+  } else if(PF.state==='unsupported' && pfIsolationStatus()==='reload'){
+    document.getElementById('pikaEngineHint').innerHTML='跨來源隔離元件已就緒，請<b>重新整理頁面</b>一次即可啟用 Pikafish 引擎。';
   }
 });
 
@@ -2577,6 +2903,9 @@ document.getElementById('btnSaveRec').addEventListener('click', ()=>{
   const entry=DATA[side][cat];
   selectCategory(cat, entry.lines.length-1);
 });
+
+/* 啟動時嘗試載入外部 JSON 棋庫（部署後放 openings/ 資料夾即可，無則略過） */
+loadExternalOpenings();
 
 </script>
 </body>
