@@ -437,6 +437,7 @@
   </div>
   <div id="bestMoves"></div>
   <div id="pvLine" style="display:none;margin-top:6px;padding:6px 10px;border-radius:8px;background:rgba(80,140,180,.12);border:1px solid rgba(120,180,220,.3);font-size:.74rem;line-height:1.6;color:#CDE6F5;"></div>
+  <div id="coachStats" style="display:none;margin-top:6px;padding:5px 10px;border-radius:8px;background:rgba(201,162,39,.10);border:1px solid rgba(201,162,39,.30);font-size:.72rem;color:#E8CD7A;"></div>
   <div id="coachMsg" style="display:none;margin-top:8px;padding:7px 12px;border-radius:8px;background:rgba(0,0,0,.25);border:1px solid #C9A227;font-size:.8rem;"></div>
   <div style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
     <label style="display:flex;align-items:center;gap:6px;font-size:.76rem;color:#E8CD7A;cursor:pointer;">
@@ -468,6 +469,7 @@
     <button id="btnSaveRec">💾 儲存棋譜</button>
     <button id="btnSearchOpen">🔍 搜尋此局面的開局影片</button>
     <button id="btnImport">📋 匯入棋譜</button>
+    <button id="btnMaster">🏆 大師棋庫</button>
     <button id="btnExport">📤 匯出棋譜</button>
   </div>
   <div class="import-panel" id="exportPanel">
@@ -495,6 +497,16 @@
     <div class="imp-msg" id="impMsg"></div>
   </div>
   <div class="search-results" id="searchResults"></div>
+  <div class="import-panel" id="masterPanel">
+    <div class="imp-row">
+      <input type="text" id="mstQuery" placeholder="搜尋棋手、賽事或年份，例如：王天一、亞錦賽、2026" style="flex:1;min-width:180px;">
+      <button id="btnMstSearch">搜尋</button>
+      <button id="btnCancelMaster">關閉</button>
+    </div>
+    <div class="imp-msg" id="mstMsg"></div>
+    <div id="mstQuick" style="display:flex;flex-wrap:wrap;gap:5px;margin:4px 0 8px;"></div>
+    <div id="mstResults" style="max-height:280px;overflow-y:auto;"></div>
+  </div>
   <div class="moves" id="movesList"></div>
   <div class="desc" id="descBox"></div>
   <div class="links">
@@ -714,43 +726,8 @@ function applyNotation(state, side, str){
     piece.col=toCol; piece.row=toRow;
     return {from:[fromCol,fromRow], to:[toCol,toRow]};
   }
-  /* 後援：啟發式解析（僅在嚴格解析無合法解時使用，保障舊資料相容） */
-  const {prefix,category,col,action,target}=tk;
-  const screenCol=(col!==null) ? sideColToScreen(side,col) : null;
-  let candidates=[];
-  if(screenCol!==null){
-    candidates = state.filter(p=>p.alive && p.side===side && pieceCategory(p.type)===category && p.col===screenCol);
-  }
-  if(candidates.length===0){
-    candidates = state.filter(p=>p.alive && p.side===side && pieceCategory(p.type)===category);
-  }
-  // order candidates: prefer ones that have already moved from their starting square,
-  // then by front/back (前/后) convention as a tiebreak
-  const moved = candidates.filter(p=> p.row!==p.initRow || p.col!==p.initCol);
-  const unmoved = candidates.filter(p=> p.row===p.initRow && p.col===p.initCol);
-  const sortFront = arr => arr.slice().sort((a,b)=> side==='r' ? a.row-b.row : b.row-a.row);
-  let ordered;
-  if(prefix==='后'||prefix==='後'){
-    ordered = sortFront(candidates).reverse();
-  } else if(prefix==='前'){
-    ordered = sortFront(candidates);
-  } else {
-    ordered = [...sortFront(moved), ...sortFront(unmoved)];
-  }
-  // pick the first candidate whose destination doesn't land on a friendly piece (legality check)
-  let piece=ordered[0], dest=null;
-  for(const cand of ordered){
-    const d = computeDestForPiece(cand, side, category, action, target);
-    const blocked = state.some(p=>p.alive && p.side===side && p!==cand && p.col===d[0] && p.row===d[1]);
-    if(!blocked){ piece=cand; dest=d; break; }
-  }
-  if(!dest) dest = computeDestForPiece(piece, side, category, action, target);
-  const fromCol=piece.col, fromRow=piece.row;
-  const [toCol,toRow]=dest;
-  const captured = state.find(p=>p.alive && p.side!==side && p.col===toCol && p.row===toRow);
-  if(captured) captured.alive=false;
-  piece.col=toCol; piece.row=toRow;
-  return {from:[fromCol,fromRow], to:[toCol,toRow]};
+  /* 嚴格解析找不到合法著法 → 直接報錯，避免壞資料靜默混入棋庫 */
+  throw new Error('「'+str+'」不是此局面的合法著法（可能是路數寫錯、該子被阻擋，或棋譜順序有誤）');
 }
 
 function buildMovesFromNotation(list){
@@ -766,198 +743,32 @@ function demoFromNotation(name, desc, list){
   return { name, desc, moves: buildMovesFromNotation(list) };
 }
 
-const DATA = {
-  "先手": {
-    "中炮對列手砲": {
-      intro:"紅方中炮直進，黑方以中砲對峙迎擊，形成炮對炮的正面交鋒陣型。",
-      lines:[
-        playlist("先手中砲對列砲專題清單（4部）", "PLIoeW_p5UU0irAoufXviGezVj97HxRInj"),
-        demoFromNotation("列手砲基本定式（30步）",
-        "列炮＝黑方炮2平5（與紅炮不同方向，故名「列」）。雙方按部就班出動車馬，形成小列手炮對峙陣型。（已依網路棋譜資料修正：先前版本誤用炮8平5，那是順炮。）（前12步為定式主線，第13步起為內建引擎推演之參考續著）",
-        ["炮二平五","炮2平5","馬二進三","馬8進7","車一平二","車9平8","馬八進七","馬2進3","車九平八","車1平2","兵三進一","卒3進1","車二進六","車2進6","車二平三","車2平3","馬七退五","馬7退5","炮五進四","馬3進5","車三平五","車3平2","相七進五","砲5平2","馬五退七","砲8平7","炮八平七","車2平3","車八進七","象7進5"]) ]
-    },
-    "中砲對半途列砲": { intro:"黑方先走屏風馬式布陣，中途突然平中砲轉為列砲對攻，出其不意，屬帶欺騙性的變化型應法。", lines:[
-        playlist("先手中砲對半途列砲專題清單（9部）", "PLIoeW_p5UU0hnRhphmaNZRkV841rcw922"),
-        demoFromNotation("半途列砲基本定式（30步）","黑方先封車再突然炮2平5轉列砲（依網路棋譜：左炮封車轉半途列炮），攻其不備的兇悍變着。（前12步為定式主線，第13步起為內建引擎推演之參考續著）",
-        ["炮二平五","馬8進7","馬二進三","車9平8","車一平二","炮8進4","兵三進一","炮2平5","馬八進七","馬2進3","車九平八","車1平2","馬三進四","砲8進1","馬四進六","馬3退5","馬六進四","砲5進4","馬七進五","馬5進6","炮八平二","車2進9","馬五退七","象3進5","馬七退八","馬6進7","炮五平三","後馬退5","炮二進二","馬7進6"]) ] },
-    "中砲對順手砲": { intro:"黑方以同側砲移至中路應戰，攻防節奏與列手砲不同，較講究先手速度。", lines:[
-        demoFromNotation("順炮直車兩頭蛇對雙橫車（30步）","順炮目前最流行的主流陣型：紅方直車配兩頭蛇（三、七兵齊挺），黑方以雙橫車應對。（前12步為定式主線，第13步起為內建引擎推演之參考續著）",
-        ["炮二平五","炮8平5","馬二進三","馬8進7","車一平二","車9進1","兵三進一","車9平4","兵七進一","馬2進3","馬八進七","車1進1","車二進六","砲5退1","馬三進四","車4進7","車二平三","車4平3","馬七進六","砲5進5","仕六進五","車3退3","馬六進五","馬3進5","馬四進五","馬7退5","兵三進一","卒9進1","兵三平二","卒9進1"]) ] },
-    "中砲對單提馬": { intro:"黑方僅提一隻邊馬，陣型較靈活但左翼子力發展較慢。", lines:[
-        playlist("先手中砲對單提馬專題清單（14部）", "PLIoeW_p5UU0ge7mfoTXqSHkhmM74yZoHb"),
-        demoFromNotation("單提馬基本定式（30步）","黑方一正馬一邊馬的單提馬陣型，出車快速、橫車靈活，但中路稍弱。（前12步為定式主線，第13步起為內建引擎推演之參考續著）",
-        ["炮二平五","馬2進3","馬二進三","馬8進9","車一平二","車9平8","馬八進七","車1進1","兵七進一","車1平4","車九平八","車4進3","炮八平九","砲2進2","車二進六","砲8平7","車二平一","砲7進4","馬三退五","卒3進1","兵七進一","車4平3","馬七進六","砲2平1","炮九平七","砲7平1","車八進三","前砲進2","馬六進五","馬3進5"]) ] },
-    "中砲對鴛鴦砲": { intro:"黑方雙砲並列於同一線上，攻擊力集中，但陣型較呆板缺乏彈性。", lines:[placeholder()] },
-    "中砲對反宮馬": { intro:"黑方馬走象位形成反宮馬結構，變化細膩，屬穩健型應法。", lines:[
-        playlist("反宮馬專題播放清單（30部）", "PLIoeW_p5UU0hwVFIIxu3HrkXgjjHrhR3u"),
-        demoFromNotation("五七炮進三兵對反宮馬（30步）","反宮馬（夾砲屏風）標準陣型：黑方士角砲配雙正馬，紅方以五七炮進三兵體系攻堅。（前12步為定式主線，第13步起為內建引擎推演之參考續著）",
-        ["炮二平五","馬2進3","馬二進三","炮8平6","車一平二","馬8進7","兵三進一","卒3進1","馬八進九","象7進5","炮八平七","車1平2","馬三進四","砲2平1","馬四進五","砲1進4","馬五進七","砲6平3","馬九退七","砲1平5","仕六進五","砲3進4","炮七進三","車2進4","馬七進六","馬7進5","炮七退一","卒1進1","帥五平六","馬5進6"]) ] },
-    "先手反宮馬（士角砲開局）": { intro:"你執紅方時以反宮馬（士角砲）體系開局，出子含蓄、結構堅實，以柔克剛的先手布陣。", lines:[
-        playlist("先手反攻馬專題清單（18部）", "PLIoeW_p5UU0jFfi6hg_IJ0-ureXGtbrdk")
-      ] },
-    "中砲對三步虎": { intro:"一方以車、馬、砲快速出動形成「三步虎」陣勢，講求搶佔先手速度。", lines:[
-        playlist("三步虎專題播放清單（19部）", "PLIoeW_p5UU0gEfl3RhjnrIFJ4fcp2q0N1"),
-        demo("三步虎實戰譜",
-        "紅方中炮開局，黑方以馬2進3、炮2平1、車1平2等手法快速起橫車形成三步虎陣勢，雙方在河界一帶展開激烈的車馬炮纏鬥，最終黑方以象7進5吃去紅方中炮，紅方隨即車八進六展開反擊。",
-        [
-          {from:[7,7],to:[4,7],notation:"炮二平五"},
-          {from:[1,0],to:[2,2],notation:"馬2進3"},
-          {from:[7,9],to:[6,7],notation:"馬二進三"},
-          {from:[1,2],to:[0,2],notation:"炮2平1"},
-          {from:[1,9],to:[2,7],notation:"馬八進七"},
-          {from:[0,0],to:[1,0],notation:"車1平2"},
-          {from:[0,9],to:[1,9],notation:"車九平八"},
-          {from:[1,0],to:[1,6],notation:"車2進6"},
-          {from:[8,9],to:[7,9],notation:"車一平二"},
-          {from:[8,0],to:[8,1],notation:"車9進1"},
-          {from:[6,6],to:[6,5],notation:"兵三進一"},
-          {from:[7,0],to:[8,2],notation:"馬8進9"},
-          {from:[6,7],to:[5,5],notation:"馬三進四"},
-          {from:[7,2],to:[4,2],notation:"炮8平5"},
-          {from:[7,9],to:[7,4],notation:"車二進五"},
-          {from:[8,1],to:[3,1],notation:"車9平4"},
-          {from:[2,6],to:[2,5],notation:"兵七進一"},
-          {from:[0,2],to:[0,6],notation:"炮1進4"},
-          {from:[7,4],to:[3,4],notation:"車二平六"},
-          {from:[3,1],to:[5,1],notation:"車4平6"},
-          {from:[5,5],to:[6,7],notation:"馬四退三"},
-          {from:[1,6],to:[2,6],notation:"車2平3"},
-          {from:[3,4],to:[3,7],notation:"車六退三"},
-          {from:[5,1],to:[5,7],notation:"車6進6"},
-          {from:[6,7],to:[8,8],notation:"馬三退一"},
-          {from:[0,6],to:[4,6],notation:"炮1平5"},
-          {from:[3,9],to:[4,8],notation:"仕六進五"},
-          {from:[5,0],to:[4,1],notation:"士6進5"},
-          {from:[1,7],to:[1,2],notation:"炮八進五"},
-          {from:[4,3],to:[4,4],notation:"卒5進1"},
-          {from:[1,2],to:[4,2],notation:"炮八平五"},
-          {from:[6,0],to:[4,2],notation:"象7進5"},
-          {from:[1,9],to:[1,3],notation:"車八進六"}
-        ]) ] },
-    "中砲五七炮進三兵": { intro:"紅方採五七炮並挺三兵的特定陣型組合，出子次序講究，變化較為複雜。", lines:[
-        playlist("五七炮進三兵專題清單（49部）", "PLIoeW_p5UU0g8gNkw7F9Zm1GmctTZYCM7")
-      ] },
-    "中砲對巡河砲": { intro:"黑方（或紅方）以巡河砲控制河界線，牽制對方兵卒與馬路。", lines:[
-        video("吾愛象棋教學影片", "https://youtu.be/PgxGfdXyMQw"),
-        demoFromNotation("巡河砲基本定式（30步）","黑方砲8進2巡河，牽制紅方兵線並準備兌卒活馬搶先。（前12步為定式主線，第13步起為內建引擎推演之參考續著）",
-        ["炮二平五","馬8進7","馬二進三","車9平8","車一平二","炮8進2","兵七進一","馬2進3","馬八進七","卒7進1","車九進一","象3進5","炮八進一","砲8進2","炮八進二","砲2退1","炮八退四","砲2進5","炮八平三","砲2平3","馬七退五","卒3進1","兵七進一","象5進3","兵五進一","士4進5","兵三進一","卒7進1","炮三進三","象7進9"]) ] },
-    "仙人指路（先手起手式）": { intro:"紅方以邊兵/卒先行試探，不急於中炮，屬靈活多變的起手方式。", lines:[
-        playlist("先手仙人指路專題清單（24部）", "PLIoeW_p5UU0gLqEecXicr4MoB9cU5DtNn")
-      ] },
-    "先手仙人指路對卒底炮": { intro:"紅方以挺兵（仙人指路）開局，黑方以卒底砲應戰，是仙人指路體系中最尖銳的應法之一。", lines:[
-        demoFromNotation("仙人指路對卒底砲基本定式（30步）","紅方挺七兵試探，黑方炮2平3直指兵底，紅方以中砲體系應對，雙方穩步展開。（前12步為定式主線，第13步起為內建引擎推演之參考續著）",
-        ["兵七進一","炮2平3","炮二平五","象3進5","馬二進三","卒3進1","馬八進九","馬8進7","車一平二","車9平8","車九平八","士4進5","兵七進一","砲8進4","兵七進一","砲8平5","仕六進五","車8進9","馬三退二","砲3平2","炮八平六","砲2平1","車八進八","將5平4","兵七平六","砲5平4","馬九退七","砲4退2","車八退三","砲4進1"]) ] },
-    "中砲對飛象局": {
-      intro:"黑方先飛象固防中路，出子稍緩但陣型穩健，不易被強攻擊破。",
-      lines:[ demo("飛象局示範局",
-        "紅方中炮直進，黑方先飛象鞏固中路防線，是較為穩健保守的應法。",
-        [
-          {from:[7,7],to:[4,7],notation:"炮二平五"},
-          {from:[6,0],to:[4,2],notation:"象3進5"},
-          {from:[7,9],to:[6,7],notation:"馬二進三"},
-          {from:[1,0],to:[2,2],notation:"馬2進3"}
-        ]) ]
-    },
-    "中砲對屏風馬": {
-      intro:"黑方雙馬並進形成屏風馬結構，是最經典、最常見也最穩健的應法。",
-      lines:[ demoFromNotation("中炮過河車對屏風馬平炮兌車（30步）",
-        "中炮對屏風馬最經典的主流大線：紅車過河施壓，黑方平炮兌車化解——初學者必學、大師實戰最常見的基礎開局。（前12步為定式主線，第13步起為內建引擎推演之參考續著）",
-        ["炮二平五","馬8進7","馬二進三","車9平8","車一平二","馬2進3","兵七進一","卒7進1","車二進六","炮8平9","車二平三","炮9退1","炮八平七","砲9平7","車三平四","馬3退5","車四進二","車8進1","炮七進四","砲2平3","馬八進七","卒1進1","馬七進六","砲3退1","車四退一","象3進5","馬六進五","馬7退9","炮七平一","卒7進1"]) ]
-    },
-    "中砲對仙人指路": { intro:"一方以邊兵（卒）先行試探對方應手，靈活多變，變化極為豐富。", lines:[placeholder()] },
-    "左砲封車": { intro:"黑方左砲進四封鎖紅方二路直車，牽制對方出子速度，屬於較剛烈的反制型佈局（紅方視角應法）。", lines:[
-        demoFromNotation("左砲封車基本定式（30步）","黑方炮8進4封鎖紅車，紅方以進三兵開通馬路應對，是此體系的主流開端。（前12步為定式主線，第13步起為內建引擎推演之參考續著）",
-        ["炮二平五","馬8進7","馬二進三","車9平8","車一平二","炮8進4","兵三進一","馬2進3","馬八進七","象3進5","車九平八","車1平2","炮八進七","馬3退2","車八進七","馬2進4","車八平六","將5進1","炮五平六","馬4退2","兵七進一","砲8平7","車二平一","將5退1","馬七進六","士6進5","車六平八","卒7進1","車八進二","卒7進1"]) ] }
-  },
-  "後手": {
-    "後手中炮對過河車棄馬局": { intro:"紅方過河車強力進攻，黑方以棄馬手段搶先手，局勢兇險，殺著頻出。", lines:[
-        playlist("布局陷阱：棄馬局", "PLBOlq05Et83gvYQt7oAvE6LvJu4zGwcJl", "布局陷阱系列——棄馬局專題，講解棄馬搶攻中暗藏的陷阱與破解手段。可在播放器右上角開啟清單面板切換影片。"),
-        playlist("後手棄馬局專題清單（79部）", "PLIoeW_p5UU0jA2eOx8qqMvne3_e2MCjwf")
-      ] },
-    "後手中炮對巡河車": { intro:"紅方車巡河線穩紮穩打，限制黑方馬路的發展空間，屬於較穩健的壓制型下法。", lines:[
-        playlist("後手破巡河車專題清單（13部）", "PLIoeW_p5UU0iLw8m8Qzxe-4lvMQ5jRme_")
-      ] },
-    "後手中炮對起馬局": { intro:"紅方先起馬，出子含蓄不急於決戰，變化相對緩和。", lines:[
-        playlist("後手破起馬局專題清單（7部）", "PLIoeW_p5UU0guGSQE8zFWq3HKWz19UBvn")
-      ] },
-    "後手中炮對飛象局": {
-      intro:"紅方先飛象固防中路，是較為穩健的防守型開局選擇。",
-      lines:[
-        playlist("後手對飛象局專題清單（20部）", "PLIoeW_p5UU0jUmdOC04PwiT7EoLjgigT0"),
-        demo("飛象局示範局",
-        "紅方以飛象開局鞏固中路，黑方以中炮還擊，雙方各自穩步發展子力。",
-        [
-          {from:[2,9],to:[4,7],notation:"相三進五"},
-          {from:[7,2],to:[4,2],notation:"炮8平5"},
-          {from:[7,9],to:[6,7],notation:"馬二進三"},
-          {from:[7,0],to:[6,2],notation:"馬8進7"}
-        ]) ]
-    },
-    "後手中炮對仙人指路": { intro:"紅方以邊兵先行試探黑方應手，變化靈活，考驗雙方對局面的理解。", lines:[
-        playlist("後手對仙人指路專題清單（43部）", "PLIoeW_p5UU0gKd3F1Ax9_3u2wUUnpaVns"),
-        playlist("後手對仙人指路三步棄馬（6部）", "PLIoeW_p5UU0hea8_YQwSuPqFMvNcN7XHh", "仙人指路體系中的三步棄馬變化專題——以棄馬手段搶奪先手的兇險下法。")
-      ] },
-    "後手中炮對三步虎": { intro:"你執黑方以三步虎（馬、車、砲快速出動）應對紅方，講求搶佔先手速度的反擊體系。", lines:[
-        playlist("後手三步虎專題清單（22部）", "PLIoeW_p5UU0hvodJgcMohc6h4-GwQbbKj")
-      ] },
-    "後手中炮對敢死砲": { intro:"紅方砲不顧一切強攻，局面剛烈，多有兇狠殺著，屬於高風險高回報下法。", lines:[
-        playlist("後手對敢死砲專題清單（3部）", "PLIoeW_p5UU0ger3qogh9nt8b1QUmG6wVM")
-      ] },
-    "後手巡河砲": { intro:"你執黑方以巡河砲（砲進二控制河界線）應對紅方，牽制對方兵線與馬路的靈活體系。", lines:[
-        playlist("後手巡河砲專題清單（1部）", "PLIoeW_p5UU0jidd-iXn_nY4zuVR97ntMs"),
-        demoFromNotation("巡河砲基本定式（後手視角，30步）","你執黑方砲8進2巡河牽制，準備兌卒活通馬路。",
-        ["炮二平五","馬8進7","馬二進三","車9平8","車一平二","炮8進2","兵七進一","馬2進3","馬八進七","卒7進1","車九進一","象3進5","炮八進一","砲8進2","炮八進二","砲2退1","炮八退四","砲2進5","炮八平三","砲2平3","馬七退五","卒3進1","兵七進一","象5進3","兵五進一","士4進5","兵三進一","卒7進1","炮三進三","象7進9"]) ] },
-    "後手中砲對屏風馬": { intro:"你執黑方以屏風馬體系應對紅方中炮的專題，是後手最經典穩健的防禦架構。", lines:[
-        playlist("後手中砲對屏風馬專題清單（1部）", "PLIoeW_p5UU0jN4Dv2GuSTqhVYD9pjIyNo"),
-        demoFromNotation("中炮過河車對屏風馬平炮兌車（30步）","你執黑方雙正馬如屏風穩守，紅車過河後以炮8平9平炮兌車化解壓力——屏風馬體系最著名的主流大線。（前12步為定式主線，第13步起為內建引擎推演之參考續著）",
-        ["炮二平五","馬8進7","馬二進三","車9平8","車一平二","馬2進3","兵七進一","卒7進1","車二進六","炮8平9","車二平三","炮9退1","炮八平七","砲9平7","車三平四","馬3退5","車四進二","車8進1","炮七進四","砲2平3","馬八進七","卒1進1","馬七進六","砲3退1","車四退一","象3進5","馬六進五","馬7退9","炮七平一","卒7進1"]) ] },
-    "後手對五六砲": { intro:"紅方採五六砲陣型（中炮加仕角砲），穩健中帶攻勢，你執黑方時的破解應法。", lines:[
-        playlist("後手對56砲專題清單（5部）", "PLIoeW_p5UU0hS2LyD5MjTThvOiyoFsyBQ")
-      ] },
-    "後手對中砲直橫車": { intro:"紅方中炮配合直車加橫車的立體攻勢，攻擊層次豐富，你執黑方時的破解應法。", lines:[
-        playlist("後手對中砲直橫車專題清單（13部）", "PLIoeW_p5UU0hEvJ7cwXYp_hzzoKSZcGRY")
-      ] },
-    "後手中砲破盤頭馬": { intro:"紅方以盤頭馬（雙馬並列中路）陣型進攻，你執黑方時以中砲體系破解的專題應法。", lines:[
-        playlist("後手中砲破盤頭馬專題清單（5部）", "PLIoeW_p5UU0i_JUTxYQcGPy0VhdmKnLfm")
-      ] },
-    "後手中砲對過宮砲": { intro:"紅方以過宮砲（砲二平六橫越九宮）開局，陣型集中一翼，你執黑方以中砲體系破解的應法。", lines:[
-        playlist("後手中砲對過宮砲專題清單（6部）", "PLIoeW_p5UU0iXq-9Z118sWtEjPecIWkfz"),
-        demoFromNotation("中砲應過宮砲基本定式（30步）","紅方過宮砲集結一翼，黑方還以中砲直攻中路，針鋒相對。（前12步為定式主線，第13步起為內建引擎推演之參考續著）",
-        ["炮二平六","炮8平5","馬二進三","馬8進7","車一平二","車9平8","馬八進七","馬2進3","車九平八","車1平2","兵七進一","卒7進1","炮八進七","車8進9","馬三退二","馬7進8","炮六平五","馬8進7","炮五進四","馬3進5","相三進五","砲2平3","車八進六","馬7退6","車八平七","卒1進1","炮八退三","馬6退7","馬七退五","砲5進4"]) ] },
-    "後手對士角砲": { intro:"紅方第一手走士角砲（炮二平四／炮八平六），出子含蓄多變，你執黑方時的破解應法。", lines:[
-        playlist("後手對士角砲專題清單（7部）", "PLIoeW_p5UU0j2aJkLqqlxeSiaxgPv400B"),
-        demoFromNotation("中砲應士角砲基本定式（30步）","紅方士角砲含蓄布陣，黑方以中砲搶攻中路爭取主動。（前12步為定式主線，第13步起為內建引擎推演之參考續著）",
-        ["炮二平四","炮8平5","馬二進三","馬8進7","車一平二","車9平8","馬八進七","馬2進3","車九平八","車1平2","兵七進一","卒7進1","炮八進七","車8進9","馬三退二","馬7進6","馬二進一","砲2平1","車八進三","馬6退4","相七進五","馬3退2","車八進六","馬4退5","車八退三","砲5平9","車八平九","砲1平5","車九平七","砲9進4"]) ] },
-    "後手反宮馬": { intro:"你執黑方時以反宮馬（士角砲）應對紅方中炮，結構穩健、變化細膩，是經典的後手防禦體系。", lines:[
-        playlist("後手反攻馬專題清單（9部）", "PLIoeW_p5UU0jAKGGigu_sp8TbkW4WN-3s"),
-        demoFromNotation("反宮馬基本定式（後手視角，30步）","你執黑方以士角砲＋雙正馬構築反宮馬，剛柔並濟的經典防反體系。",
-        ["炮二平五","馬2進3","馬二進三","炮8平6","車一平二","馬8進7","兵三進一","卒3進1","馬八進九","象7進5","炮八平七","車1平2","馬三進四","砲2平1","馬四進五","砲1進4","馬五進七","砲6平3","馬九退七","砲1平5","仕六進五","砲3進4","炮七進三","車2進4","馬七進六","馬7進5","炮七退一","卒1進1","帥五平六","馬5進6"]) ] },
-    "後手對中炮牛頭滾": { intro:"黑方以「牛頭滾」手法應對紅方中炮，是較少見但頗具特色的變化型應法。", lines:[
-        playlist("後手牛頭滾專題清單（49部）", "PLIoeW_p5UU0iTubnd8Z6apBNbt-UptuDI")
-      ] },
-    "後手左砲封車": { intro:"黑方以左砲封鎖紅方直車，牽制對方出子節奏，屬於較剛烈的反制型下法。", lines:[
-        playlist("後手左砲封車專題清單（22部）", "PLIoeW_p5UU0hFHU_GMKHyCE3xafI_45nl"),
-        demoFromNotation("左砲封車基本定式（後手視角，30步）","你執黑方炮8進4封鎖紅方二路車，逼紅方調整出子計畫，搶奪布局主導權。",
-        ["炮二平五","馬8進7","馬二進三","車9平8","車一平二","炮8進4","兵三進一","馬2進3","馬八進七","象3進5","車九平八","車1平2","炮八進七","馬3退2","車八進七","馬2進4","車八平六","將5進1","炮五平六","馬4退2","兵七進一","砲8平7","車二平一","將5退1","馬七進六","士6進5","車六平八","卒7進1","車八進二","卒7進1"]) ] }
-  }
-};
+/* 棋譜資料已外置於 openings/*.json，由 loadOpeningLibrary() 於啟動時載入 */
+const DATA = { "先手": {}, "後手": {} };
 
-/* ---------- 狀態 ---------- */
-let currentMoves = [];
-let currentIndex = 0;
-let playTimer = null;
-/* 記譜模式狀態 */
-let recording = false;
-let recordedMoves = [];
-let selectedPos = null;
-let flipBoard = false;   // true = 後手視角，黑子在下方
-function dC(c){ return flipBoard ? 8-c : c; }
-function dR(r){ return flipBoard ? 9-r : r; }
+/* ==================== 應用程式狀態（單一物件集中管理） ====================
+   nav      棋譜瀏覽：目前分類、棋譜索引、著法、播放位置與計時器
+   rec      記譜模式：是否記譜中、已記著法、選取格、視角翻轉
+   render   繪製與動畫：棋子主題、上次繪製位置（判斷是否播放動畫）、將軍播報去重
+   analysis 分析：請求序號、根局面分析結果、形勢曲線快取
+   library  棋庫：匯入的棋譜、大師對局索引
+   engine   Pikafish WASM 引擎狀態（定義於引擎區塊）
+   speech   語音合成狀態（定義於語音區塊）                                  */
+const AppState = {
+  nav:      { cat:null, idx:0, moves:[], index:0, playTimer:null },
+  rec:      { on:false, moves:[], selected:null, flip:false },
+  render:   { theme:'classic', prevIdx:-1, prevMode:'', lastCheckSpoken:'' },
+  analysis: { seq:0, lastRoot:null, curveCache:{key:'', vals:[]}, coachStats:{r:[], b:[]} },
+  library:  { imported:[], masters:[] },
+  engine:   null,
+  speech:   null
+};
+function dC(c){ return AppState.rec.flip ? 8-c : c; }
+function dR(r){ return AppState.rec.flip ? 9-r : r; }
 
 /* ---------- 下拉選單初始化 ---------- */
 const sideSelect = document.getElementById('sideSelect');
 const categorySelect = document.getElementById('categorySelect');
-let selCat = null, selIdx = 0;   // 目前選取的分類與棋譜/影片索引
 
 Object.keys(DATA).forEach(side=>{
   const opt=document.createElement('option');
@@ -1000,11 +811,12 @@ function populateCategories(){
 }
 
 function applySelection(){
-  if(recording) stopRecording();   // 記譜中選取分類：自動結束記譜，避免文字棋譜點了沒反應
+  if(AppState.rec.on) stopRecording();   // 記譜中選取分類：自動結束記譜，避免文字棋譜點了沒反應
   const v = categorySelect.value;
   const sep = v.lastIndexOf('||');
-  selCat = v.substring(0, sep);
-  selIdx = parseInt(v.substring(sep+2), 10) || 0;
+  if(sep < 0) return;              // 棋庫尚未載入完成：暫不套用
+  AppState.nav.cat = v.substring(0, sep);
+  AppState.nav.idx = parseInt(v.substring(sep+2), 10) || 0;
   loadLine();
 }
 
@@ -1014,13 +826,13 @@ function selectCategory(cat, idx){
 }
 
 function loadLine(){
-  const side=sideSelect.value, cat=selCat, idx=selIdx;
+  const side=sideSelect.value, cat=AppState.nav.cat, idx=AppState.nav.idx;
   const entry = DATA[side][cat];
   if(!entry) return;
   const line = entry.lines[idx];
-  currentMoves = line.moves;
-  currentIndex = 0;
-  if(!recording) flipBoard = (side==='後手');   // 後手棋譜以黑子在下方視角展示
+  AppState.nav.moves = line.moves;
+  AppState.nav.index = 0;
+  if(!AppState.rec.on) AppState.rec.flip = (side==='後手');   // 後手棋譜以黑子在下方視角展示
   document.getElementById('descBox').innerHTML =
     '<b>'+cat+'</b><br>'+entry.intro + '<br><br>'+line.desc;
   const videoLinkEl = document.getElementById('videoLink');
@@ -1036,7 +848,7 @@ function loadLine(){
     videoLinkEl.textContent = '教學影片搜尋';
   }
   document.getElementById('sourceLink').href = 'https://youtu.be/ZdLDNyK8UPY';
-  document.getElementById('analysisPanel').classList.toggle('show', currentMoves.length>0);   // 有文字棋譜即顯示分析面板
+  document.getElementById('analysisPanel').classList.toggle('show', AppState.nav.moves.length>0);   // 有文字棋譜即顯示分析面板
   renderMovesList();
   renderBoard();
 }
@@ -1086,7 +898,7 @@ function drawBoardGrid(){
 }
 
 function computeBoardAt(index, movesArr){
-  const src = movesArr || currentMoves;
+  const src = movesArr || AppState.nav.moves;
   const pieces = initialPieces().map(p=>({...p, alive:true}));
   for(let i=0;i<index;i++){
     const mv = src[i];
@@ -1100,146 +912,204 @@ function computeBoardAt(index, movesArr){
   return pieces.filter(p=>p.alive);
 }
 
-function renderBoard(){
-  const movesArr = recording ? recordedMoves : currentMoves;
-  const idx = recording ? recordedMoves.length : currentIndex;
-  const pieces = computeBoardAt(idx, movesArr);
-  let html = drawBoardGrid();
+/* ==================== 棋盤繪製（拆分為六個職責單一的函式） ====================
+   renderBoard()  總調度：取得目前局面 → 依序呼叫下列各函式
+     ├ renderGrid()        棋盤格線、九宮、河界（drawBoardGrid 產生）
+     ├ renderAnnotations() 標記：最後一步光圈、記譜選取框
+     ├ renderPieces()      棋子本體（含主題配色與文字描邊）
+     ├ buildCaptureGhost() 吃子殘影（僅前進一步且有吃子時產生）
+     ├ triggerAnimations() 動畫：走子滑移、殘影淡出、光圈閃爍
+     ├ updateStatus()      將軍／絕殺橫幅與語音播報
+     └ updateAnalysis()    開局辨識、形勢曲線、引擎分析觸發              */
 
-  if(idx>0){
-    const last = movesArr[idx-1];
-    html += `<circle id="lastRing" cx="${X(dC(last.to[0]))}" cy="${Y(dR(last.to[1]))}" r="27" fill="none" stroke="#C9A227" stroke-width="2.5" opacity="0.85"/>`;
-  }
-  if(recording && selectedPos){
-    html += `<circle cx="${X(dC(selectedPos[0]))}" cy="${Y(dR(selectedPos[1]))}" r="28" fill="none" stroke="#6FCF6F" stroke-width="3"/>`;
-  }
+/* 取得目前要繪製的局面上下文，供各繪製函式共用 */
+function getRenderContext(){
+  const rec = AppState.rec.on;
+  const movesArr = rec ? AppState.rec.moves : AppState.nav.moves;
+  const idx = rec ? AppState.rec.moves.length : AppState.nav.index;
+  return {
+    rec, movesArr, idx,
+    pieces: computeBoardAt(idx, movesArr),
+    last: idx>0 ? movesArr[idx-1] : null,
+    theme: PIECE_THEMES[AppState.render.theme] || PIECE_THEMES.classic,
+    /* 是否為「往前走一步」——只有這種情況才播放動畫（跳步／倒退不播） */
+    stepForward: idx>0 && AppState.render.prevIdx===idx-1
+                 && AppState.render.prevMode===(rec?'rec':'play')
+  };
+}
 
-  pieces.forEach(p=>{
-    const cx=X(dC(p.col)), cy=Y(dR(p.row));
-    const isRed = p.side==='r';
-    const textC = isRed ? '#F7E7C9' : '#E4C874';
-    const isMoved = idx>0 && p.col===movesArr[idx-1].to[0] && p.row===movesArr[idx-1].to[1];
-    html += `
-      <g${isMoved?' data-anim="1"':''}>
-        <circle cx="${cx}" cy="${cy}" r="24" fill="url(#g-${isRed?'r':'b'})" stroke="#C9A227" stroke-width="1.5"/>
-        <circle cx="${cx}" cy="${cy}" r="20" fill="none" stroke="${textC}" stroke-width="0.6" opacity="0.5"/>
-        <text x="${cx}" y="${cy+8}" font-size="22" fill="${textC}" font-family='"Noto Serif TC",serif' font-weight="700" text-anchor="middle">${p.type}</text>
+/* ---- 棋盤格線 ---- */
+function renderGrid(){
+  return drawBoardGrid();
+}
+
+/* ---- 標記：最後一步光圈、記譜選取框 ---- */
+function renderAnnotations(ctx){
+  let html='';
+  if(ctx.last){
+    html += `<circle id="lastRing" cx="${X(dC(ctx.last.to[0]))}" cy="${Y(dR(ctx.last.to[1]))}" r="27" fill="none" stroke="#C9A227" stroke-width="2.5" opacity="0.85"/>`;
+  }
+  if(ctx.rec && AppState.rec.selected){
+    html += `<circle cx="${X(dC(AppState.rec.selected[0]))}" cy="${Y(dR(AppState.rec.selected[1]))}" r="28" fill="none" stroke="#6FCF6F" stroke-width="3"/>`;
+  }
+  return html;
+}
+
+/* ---- 單顆棋子（棋子本體與殘影共用，確保外觀一致） ---- */
+function pieceSvg(p, cx, cy, theme, extraAttr){
+  const isRed = p.side==='r';
+  const textC = isRed ? theme.rt : theme.bt;
+  const ringC = isRed ? theme.rr : theme.br;
+  const haloC = isRed ? theme.rh : theme.bh;
+  return `
+      <g${extraAttr||''}>
+        <circle cx="${cx}" cy="${cy}" r="24" fill="url(#g-${isRed?'r':'b'})" stroke="${ringC}" stroke-width="1.6"/>
+        <circle cx="${cx}" cy="${cy}" r="20" fill="none" stroke="${ringC}" stroke-width="0.8" opacity="0.65"/>
+        <text x="${cx}" y="${cy+8.5}" font-size="23" fill="${textC}" stroke="${haloC}" stroke-width="1.6"
+              paint-order="stroke" stroke-linejoin="round"
+              font-family='"Noto Serif TC","PMingLiU",serif' font-weight="900" text-anchor="middle">${p.type}</text>
       </g>`;
+}
+
+/* ---- 棋子 ---- */
+function renderPieces(ctx){
+  let html='';
+  ctx.pieces.forEach(p=>{
+    const moved = ctx.last && p.col===ctx.last.to[0] && p.row===ctx.last.to[1];
+    html += pieceSvg(p, X(dC(p.col)), Y(dR(p.row)), ctx.theme, moved?' data-anim="1"':'');
   });
+  return html;
+}
 
-  const isStepForward = idx>0 && _prevAnimIdx===idx-1 && _prevAnimMode===(recording?'rec':'play');
+/* ---- 吃子殘影 ---- */
+function buildCaptureGhost(ctx){
+  if(!ctx.stepForward || !ctx.last) return '';
+  const before = computeBoardAt(ctx.idx-1, ctx.movesArr);
+  const cap = before.find(p=>p.col===ctx.last.to[0] && p.row===ctx.last.to[1]);
+  if(!cap) return '';
+  return pieceSvg(cap, X(dC(cap.col)), Y(dR(cap.row)), ctx.theme,
+                  ' id="capGhost" style="pointer-events:none;"');
+}
 
-  /* 吃子淡出殘影：前進一步且該步有吃子時，於原地留下被吃棋子淡出 */
-  let ghost = '';
-  if(isStepForward){
-    const last = movesArr[idx-1];
-    const before = computeBoardAt(idx-1, movesArr);
-    const cap = before.find(p=>p.col===last.to[0] && p.row===last.to[1]);
-    if(cap){
-      const gx=X(dC(cap.col)), gy=Y(dR(cap.row));
-      const gTxt = cap.side==='r' ? '#F7E7C9' : '#E4C874';
-      ghost = `<g id="capGhost" style="pointer-events:none;">
-        <circle cx="${gx}" cy="${gy}" r="24" fill="url(#g-${cap.side==='r'?'r':'b'})" stroke="#C9A227" stroke-width="1.5"/>
-        <text x="${gx}" y="${gy+8}" font-size="22" fill="${gTxt}" font-family='"Noto Serif TC",serif' font-weight="700" text-anchor="middle">${cap.type}</text>
-      </g>`;
-    }
-  }
-
-  const TH = PIECE_THEMES[pieceTheme] || PIECE_THEMES.classic;
-  svg.innerHTML = `
+/* ---- 漸層定義（依主題） ---- */
+function renderDefs(theme){
+  return `
     <defs>
       <radialGradient id="g-r" cx="35%" cy="30%" r="75%">
-        <stop offset="0%" stop-color="${TH.r0}"/><stop offset="100%" stop-color="${TH.r1}"/>
+        <stop offset="0%" stop-color="${theme.r0}"/><stop offset="100%" stop-color="${theme.r1}"/>
       </radialGradient>
       <radialGradient id="g-b" cx="35%" cy="30%" r="75%">
-        <stop offset="0%" stop-color="${TH.b0}"/><stop offset="100%" stop-color="${TH.b1}"/>
+        <stop offset="0%" stop-color="${theme.b0}"/><stop offset="100%" stop-color="${theme.b1}"/>
       </radialGradient>
-    </defs>
-    ${html}${ghost}`;
+    </defs>`;
+}
 
-  /* 走子動畫：僅在往前走一步時播放（跳步/倒退不動畫） */
-  if(isStepForward && window.requestAnimationFrame){
+/* ---- 動畫：走子滑移、殘影淡出、光圈閃爍 ---- */
+function triggerAnimations(ctx){
+  if(ctx.stepForward && window.requestAnimationFrame){
+    const twice = fn => requestAnimationFrame(()=>requestAnimationFrame(fn));
+
     const g = svg.querySelector('g[data-anim]');
     if(g){
-      const last = movesArr[idx-1];
-      const dx = X(dC(last.from[0])) - X(dC(last.to[0]));
-      const dy = Y(dR(last.from[1])) - Y(dR(last.to[1]));
+      const dx = X(dC(ctx.last.from[0])) - X(dC(ctx.last.to[0]));
+      const dy = Y(dR(ctx.last.from[1])) - Y(dR(ctx.last.to[1]));
       g.style.transition='none';
       g.style.transform=`translate(${dx}px,${dy}px)`;
-      requestAnimationFrame(()=>{ requestAnimationFrame(()=>{
-        g.style.transition='transform .28s ease';
-        g.style.transform='translate(0,0)';
-      });});
+      twice(()=>{ g.style.transition='transform .28s ease'; g.style.transform='translate(0,0)'; });
     }
-    /* 吃子殘影淡出＋縮小 */
+
     const gh = svg.querySelector('#capGhost');
     if(gh){
-      gh.style.transformOrigin = X(dC(movesArr[idx-1].to[0]))+'px '+Y(dR(movesArr[idx-1].to[1]))+'px';
+      gh.style.transformOrigin = X(dC(ctx.last.to[0]))+'px '+Y(dR(ctx.last.to[1]))+'px';
       gh.style.transition='none';
       gh.style.opacity='1';
-      requestAnimationFrame(()=>{ requestAnimationFrame(()=>{
+      twice(()=>{
         gh.style.transition='opacity .42s ease, transform .42s ease';
-        gh.style.opacity='0';
-        gh.style.transform='scale(.55)';
-      });});
+        gh.style.opacity='0'; gh.style.transform='scale(.55)';
+      });
     }
-    /* 最後一步閃光 */
+
     const ring = svg.querySelector('#lastRing');
     if(ring){
       ring.style.transition='none';
       ring.setAttribute('r','16'); ring.style.opacity='1'; ring.style.strokeWidth='4';
-      requestAnimationFrame(()=>{ requestAnimationFrame(()=>{
+      twice(()=>{
         ring.style.transition='r .45s ease-out, opacity .45s ease-out, stroke-width .45s ease-out';
         ring.setAttribute('r','27'); ring.style.strokeWidth='2.5';
-      });});
+      });
     }
   }
-  _prevAnimIdx = idx; _prevAnimMode = recording?'rec':'play';
+  AppState.render.prevIdx = ctx.idx;
+  AppState.render.prevMode = ctx.rec ? 'rec' : 'play';
+}
 
-  /* 將軍／絕殺提示 */
+/* ---- 將軍／絕殺提示（含語音，同一局面只播報一次） ---- */
+function updateStatus(ctx){
   const banner = document.getElementById('checkBanner');
-  const stmSide = idx%2===0 ? 'r' : 'b';
-  const st = idx>0 ? checkStatusXQ(pieces, stmSide) : null;
-  if(st){
-    const who = stmSide==='r' ? '紅方' : '黑方';
-    const winner = stmSide==='r' ? '黑方' : '紅方';
-    let txt;
-    if(st==='mate'){
-      txt='☠ 絕殺！'+who+'無解，'+winner+'勝';
-      banner.textContent=txt;
-      banner.style.cssText+=';display:block;background:rgba(160,30,30,.35);border:1px solid #E05050;color:#FFB4B4;';
-    } else {
-      txt='⚠ '+who+'被將軍';
-      banner.textContent=txt;
-      banner.style.cssText+=';display:block;background:rgba(201,120,39,.25);border:1px solid #E0A050;color:#FFD9A0;';
-    }
-    /* 語音播報：同一局面只念一次 */
-    const key=(recording?'r':'p')+':'+idx+':'+st;
-    if(_lastCheckSpoken!==key){ _lastCheckSpoken=key; speak(txt); }
-  } else {
+  const stmSide = ctx.idx%2===0 ? 'r' : 'b';
+  const st = ctx.idx>0 ? checkStatusXQ(ctx.pieces, stmSide) : null;
+  if(!st){
     banner.style.display='none';
-    _lastCheckSpoken='';
+    AppState.render.lastCheckSpoken='';
+    return;
   }
+  const who = stmSide==='r' ? '紅方' : '黑方';
+  const winner = stmSide==='r' ? '黑方' : '紅方';
+  let txt;
+  if(st==='mate'){
+    txt='☠ 絕殺！'+who+'無解，'+winner+'勝';
+    banner.style.cssText+=';display:block;background:rgba(160,30,30,.35);border:1px solid #E05050;color:#FFB4B4;';
+  } else {
+    txt='⚠ '+who+'被將軍';
+    banner.style.cssText+=';display:block;background:rgba(201,120,39,.25);border:1px solid #E0A050;color:#FFD9A0;';
+  }
+  banner.textContent=txt;
+  const key=(ctx.rec?'r':'p')+':'+ctx.idx+':'+st;
+  if(AppState.render.lastCheckSpoken!==key){ AppState.render.lastCheckSpoken=key; speak(txt); }
+}
 
-  updateOpeningReco(movesArr.slice(0, idx).map(m=>m.notation));
-  renderEvalCurve(movesArr.slice(0, recording?idx:movesArr.length), idx);
-
+/* ---- 開局辨識、形勢曲線、引擎分析 ---- */
+function updateAnalysis(ctx){
+  updateOpeningReco(ctx.movesArr.slice(0, ctx.idx).map(m=>m.notation));
+  renderEvalCurve(ctx.movesArr.slice(0, ctx.rec ? ctx.idx : ctx.movesArr.length), ctx.idx);
   updateTransportUI();
-  if(!recording && currentMoves.length>0) analyzePosition();   // 播放文字棋譜時即時分析當前局面
+  if(!ctx.rec && AppState.nav.moves.length>0) analyzePosition();
+}
+
+/* ---- 總調度 ---- */
+function renderBoard(){
+  const ctx = getRenderContext();
+  svg.innerHTML = renderDefs(ctx.theme)
+                + renderGrid()
+                + renderAnnotations(ctx)
+                + renderPieces(ctx)
+                + buildCaptureGhost(ctx);
+  triggerAnimations(ctx);
+  updateStatus(ctx);
+  updateAnalysis(ctx);
 }
 
 /* 走子動畫狀態 */
-var _prevAnimIdx = -1, _prevAnimMode = '', _lastAnimBase='', _lastCheckSpoken='';
 
-/* ---------- 棋子主題 ---------- */
+/* ---------- 棋子主題（每個主題自帶文字色與外圈色，確保對比清楚） ----------
+   r0/r1=紅子漸層  b0/b1=黑子漸層  rt/bt=文字色  rr/br=外框色  rh/bh=文字描邊色 */
 const PIECE_THEMES = {
-  classic:{name:'典藏木',   r0:'#D6584F', r1:'#7E2A24', b0:'#4A4A47', b1:'#141412'},
-  rosewood:{name:'紫檀',    r0:'#B4574A', r1:'#5A241E', b0:'#5C4033', b1:'#241610'},
-  jade:{name:'玉石',        r0:'#E88C7D', r1:'#9C453A', b0:'#7BA88F', b1:'#2C4A3A'},
-  ink:{name:'水墨',         r0:'#EDE4D4', r1:'#B9A98F', b0:'#8A8A86', b1:'#2A2A28'},
-  tournament:{name:'比賽木', r0:'#E8C98F', r1:'#B08A4A', b0:'#C9B48A', b1:'#6E5A38'}
+  classic:{ name:'典藏木',
+    r0:'#B03A32', r1:'#5E1A15', rt:'#FFF6E8', rr:'#E8C87A', rh:'#3A0F0B',
+    b0:'#4A4A47', b1:'#141412', bt:'#F2DFA8', br:'#C9A227', bh:'#000000' },
+  rosewood:{ name:'紫檀',
+    r0:'#9C4A3E', r1:'#4E1F18', rt:'#FFE9CE', rr:'#D8A96A', rh:'#38120E',
+    b0:'#5C4033', b1:'#1F120C', bt:'#F0D9A8', br:'#B08A55', bh:'#150B06' },
+  jade:{ name:'玉石',
+    r0:'#F3E8DC', r1:'#D8BFA8', rt:'#9E1B1B', rr:'#B08A6A', rh:'#FFFFFF',
+    b0:'#D9E8DC', b1:'#A8C4B0', bt:'#14301F', br:'#7BA88F', bh:'#FFFFFF' },
+  ink:{ name:'水墨',
+    r0:'#FBF6EC', r1:'#E4DACA', rt:'#B01E1E', rr:'#9A8A72', rh:'#FFFFFF',
+    b0:'#F2F0EA', b1:'#CFCBC0', bt:'#141412', br:'#7A756B', bh:'#FFFFFF' },
+  tournament:{ name:'比賽木',
+    r0:'#F7E4BC', r1:'#E0BE86', rt:'#8E1414', rr:'#8A6234', rh:'#FFFBF0',
+    b0:'#EFDFB8', b1:'#CBA76A', bt:'#1A1A18', br:'#8A6234', bh:'#FFF6E0' }
 };
-let pieceTheme = 'classic';
 
 /* ---------- 即時開局辨識 ---------- */
 function updateOpeningReco(tokens){
@@ -1266,46 +1136,46 @@ function updateOpeningReco(tokens){
 function renderMovesList(){
   const wrap = document.getElementById('movesList');
   wrap.innerHTML='';
-  if(currentMoves.length===0){
+  if(AppState.nav.moves.length===0){
     wrap.innerHTML = '<span style="font-size:.78rem;color:#C9B48A;">此開局尚無棋譜步驟，可先參考說明文字或搜尋教學影片。</span>';
     return;
   }
-  currentMoves.forEach((mv,i)=>{
+  AppState.nav.moves.forEach((mv,i)=>{
     const chip=document.createElement('span');
     chip.className='move-chip';
     chip.textContent=(i+1)+'. '+mv.notation;
-    chip.addEventListener('click',()=>{ currentIndex=i+1; renderBoard(); });
+    chip.addEventListener('click',()=>{ AppState.nav.index=i+1; renderBoard(); });
     wrap.appendChild(chip);
   });
 }
 
 function updateTransportUI(){
   const lbl = document.getElementById('stepLabel');
-  if(recording){
-    lbl.textContent = '記譜中：'+recordedMoves.length+' 步';
+  if(AppState.rec.on){
+    lbl.textContent = '記譜中：'+AppState.rec.moves.length+' 步';
   } else {
-    lbl.textContent = currentIndex+' / '+currentMoves.length;
+    lbl.textContent = AppState.nav.index+' / '+AppState.nav.moves.length;
   }
   const chips = document.querySelectorAll('.move-chip');
-  if(!recording) chips.forEach((c,i)=>{ c.classList.toggle('active', i===currentIndex-1); });
+  if(!AppState.rec.on) chips.forEach((c,i)=>{ c.classList.toggle('active', i===AppState.nav.index-1); });
 }
 
-document.getElementById('btnFirst').addEventListener('click',()=>{ if(recording)return; currentIndex=0; renderBoard(); });
-document.getElementById('btnPrev').addEventListener('click',()=>{ if(recording)return; if(currentIndex>0){currentIndex--; renderBoard();} });
-document.getElementById('btnNext').addEventListener('click',()=>{ if(recording)return; if(currentIndex<currentMoves.length){currentIndex++; renderBoard();} });
-document.getElementById('btnLast').addEventListener('click',()=>{ if(recording)return; currentIndex=currentMoves.length; renderBoard(); });
+document.getElementById('btnFirst').addEventListener('click',()=>{ if(AppState.rec.on)return; AppState.nav.index=0; renderBoard(); });
+document.getElementById('btnPrev').addEventListener('click',()=>{ if(AppState.rec.on)return; if(AppState.nav.index>0){AppState.nav.index--; renderBoard();} });
+document.getElementById('btnNext').addEventListener('click',()=>{ if(AppState.rec.on)return; if(AppState.nav.index<AppState.nav.moves.length){AppState.nav.index++; renderBoard();} });
+document.getElementById('btnLast').addEventListener('click',()=>{ if(AppState.rec.on)return; AppState.nav.index=AppState.nav.moves.length; renderBoard(); });
 
 const btnPlay = document.getElementById('btnPlay');
 btnPlay.addEventListener('click',()=>{
-  if(playTimer){
-    clearInterval(playTimer); playTimer=null; btnPlay.innerHTML='&#9654;';
+  if(AppState.nav.playTimer){
+    clearInterval(AppState.nav.playTimer); AppState.nav.playTimer=null; btnPlay.innerHTML='&#9654;';
     return;
   }
-  if(currentIndex>=currentMoves.length) currentIndex=0;
+  if(AppState.nav.index>=AppState.nav.moves.length) AppState.nav.index=0;
   btnPlay.innerHTML='&#10074;&#10074;';
-  playTimer=setInterval(()=>{
-    if(currentIndex>=currentMoves.length){ clearInterval(playTimer); playTimer=null; btnPlay.innerHTML='&#9654;'; return; }
-    currentIndex++; renderBoard();
+  AppState.nav.playTimer=setInterval(()=>{
+    if(AppState.nav.index>=AppState.nav.moves.length){ clearInterval(AppState.nav.playTimer); AppState.nav.playTimer=null; btnPlay.innerHTML='&#9654;'; return; }
+    AppState.nav.index++; renderBoard();
   },1300);
 });
 
@@ -1358,7 +1228,7 @@ document.addEventListener('click', function(e){
 }, true);
 
 /* ---------- 啟動 ---------- */
-populateCategories();
+/* 精簡版：棋譜由 openings/*.json 載入完成後才建立選單（見 loadOpeningLibrary） */
 
 /* ==================== 記譜模式 ==================== */
 const redNum=['','一','二','三','四','五','六','七','八','九'];
@@ -1399,60 +1269,59 @@ function boardPosFromEvent(e){
   for(let c=0;c<9;c++) if(Math.abs(X(c)-px)<=26){ bc=c; break; }
   for(let r=0;r<10;r++) if(Math.abs(Y(r)-py)<=26){ br=r; break; }
   if(bc<0||br<0) return null;
-  return flipBoard ? [8-bc, 9-br] : [bc, br];
+  return AppState.rec.flip ? [8-bc, 9-br] : [bc, br];
 }
 
 svg.addEventListener('click', e=>{
-  if(!recording) return;
+  if(!AppState.rec.on) return;
   const pos = boardPosFromEvent(e);
   if(!pos) return;
-  const pieces = computeBoardAt(recordedMoves.length, recordedMoves);
-  const sideToMove = recordedMoves.length%2===0 ? 'r' : 'b';
+  const pieces = computeBoardAt(AppState.rec.moves.length, AppState.rec.moves);
+  const sideToMove = AppState.rec.moves.length%2===0 ? 'r' : 'b';
   const clicked = pieces.find(p=>p.col===pos[0] && p.row===pos[1]);
 
-  if(!selectedPos){
-    if(clicked && clicked.side===sideToMove){ selectedPos=pos; renderBoard(); }
+  if(!AppState.rec.selected){
+    if(clicked && clicked.side===sideToMove){ AppState.rec.selected=pos; renderBoard(); }
     return;
   }
   // 已選子：點自己另一顆子＝換選；點其他格＝走子
-  if(clicked && clicked.side===sideToMove && !(pos[0]===selectedPos[0]&&pos[1]===selectedPos[1])){
-    selectedPos=pos; renderBoard(); return;
+  if(clicked && clicked.side===sideToMove && !(pos[0]===AppState.rec.selected[0]&&pos[1]===AppState.rec.selected[1])){
+    AppState.rec.selected=pos; renderBoard(); return;
   }
-  if(pos[0]===selectedPos[0]&&pos[1]===selectedPos[1]){ selectedPos=null; renderBoard(); return; }
-  const mover = pieces.find(p=>p.col===selectedPos[0] && p.row===selectedPos[1]);
-  if(!mover){ selectedPos=null; renderBoard(); return; }
+  if(pos[0]===AppState.rec.selected[0]&&pos[1]===AppState.rec.selected[1]){ AppState.rec.selected=null; renderBoard(); return; }
+  const mover = pieces.find(p=>p.col===AppState.rec.selected[0] && p.row===AppState.rec.selected[1]);
+  if(!mover){ AppState.rec.selected=null; renderBoard(); return; }
   /* 完整規則驗證：非法走法直接拒絕 */
-  if(!isLegalMoveXQ(pieces, sideToMove, selectedPos, pos)){
+  if(!isLegalMoveXQ(pieces, sideToMove, AppState.rec.selected, pos)){
     showCoach('✗ 非法走法：'+mover.type+'不能這樣走（含蹩馬腿、塞象眼、炮架、河界、九宮等規則）', 'warn');
     return;
   }
   /* 送將檢查：走完不能讓自己被將軍／照面 */
   {
     const sim = pieces.filter(q=>!(q.col===pos[0]&&q.row===pos[1]&&q.side!==sideToMove)).map(q=>({...q}));
-    const sm = sim.find(q=>q.col===selectedPos[0]&&q.row===selectedPos[1]);
+    const sm = sim.find(q=>q.col===AppState.rec.selected[0]&&q.row===AppState.rec.selected[1]);
     sm.col=pos[0]; sm.row=pos[1];
     if(isInCheckXQ(sim, sideToMove)){
       showCoach('✗ 不可送將：這步走完'+(sideToMove==='r'?'紅方':'黑方')+'仍被將軍（或將帥照面）', 'warn');
       return;
     }
   }
-  const notation = genNotation(pieces, mover, selectedPos, pos);
+  const notation = genNotation(pieces, mover, AppState.rec.selected, pos);
   /* AI 教練：與剛才分析的最佳著法比較 */
-  coachFeedback(selectedPos, pos, notation, pieces, sideToMove);
-  recordedMoves.push({from:[...selectedPos], to:[...pos], notation});
-  selectedPos=null;
+  coachFeedback(AppState.rec.selected, pos, notation, pieces, sideToMove);
+  AppState.rec.moves.push({from:[...selectedPos], to:[...pos], notation});
+  AppState.rec.selected=null;
   renderRecordedList();
   renderBoard();
   analyzePosition();
 });
 
 /* ---------- AI 教練 ---------- */
-let lastRootAnalysis = null;   // {ply, stm, all:[{m,score}], topNotation}
 /* ==================== 語音提示（Web Speech API） ==================== */
-const SPEECH = { on:false, voice:null, rate:1.0, ready:false, supported:('speechSynthesis' in window) };
+AppState.speech = { on:false, voice:null, rate:1.0, ready:false, supported:('speechSynthesis' in window) };
 
 function pickChineseVoice(){
-  if(!SPEECH.supported) return null;
+  if(!AppState.speech.supported) return null;
   const vs = window.speechSynthesis.getVoices() || [];
   if(!vs.length) return null;
   /* 優先序：台灣國語 → 粵語/香港 → 其他中文 → 系統預設 */
@@ -1464,19 +1333,19 @@ function pickChineseVoice(){
   return null;
 }
 function initSpeechVoices(){
-  if(!SPEECH.supported) return;
+  if(!AppState.speech.supported) return;
   const apply=()=>{
-    SPEECH.voice = pickChineseVoice();
-    SPEECH.ready = true;
+    AppState.speech.voice = pickChineseVoice();
+    AppState.speech.ready = true;
     const hint=document.getElementById('speakHint');
-    if(hint && SPEECH.on){
-      hint.textContent = SPEECH.voice
-        ? '語音：'+(SPEECH.voice.name||SPEECH.voice.lang)
+    if(hint && AppState.speech.on){
+      hint.textContent = AppState.speech.voice
+        ? '語音：'+(AppState.speech.voice.name||AppState.speech.voice.lang)
         : '找不到中文語音，將以系統預設語音朗讀';
     }
   };
   apply();
-  if(!SPEECH.voice && typeof window.speechSynthesis.addEventListener==='function'){
+  if(!AppState.speech.voice && typeof window.speechSynthesis.addEventListener==='function'){
     window.speechSynthesis.addEventListener('voiceschanged', apply, {once:true});
   }
 }
@@ -1492,15 +1361,15 @@ function speechText(html){
     .trim();
 }
 function speak(text, opts){
-  if(!SPEECH.on || !SPEECH.supported) return;
+  if(!AppState.speech.on || !AppState.speech.supported) return;
   const t = speechText(text);
   if(!t) return;
   try{
     if(!(opts && opts.queue)) window.speechSynthesis.cancel();   // 預設打斷前一句，避免積壓
     const u = new SpeechSynthesisUtterance(t);
-    if(SPEECH.voice) u.voice = SPEECH.voice;
-    u.lang = (SPEECH.voice && SPEECH.voice.lang) || 'zh-TW';
-    u.rate = SPEECH.rate;
+    if(AppState.speech.voice) u.voice = AppState.speech.voice;
+    u.lang = (AppState.speech.voice && AppState.speech.voice.lang) || 'zh-TW';
+    u.rate = AppState.speech.rate;
     u.pitch = 1.0;
     window.speechSynthesis.speak(u);
   }catch(e){ /* 語音失敗不影響其他功能 */ }
@@ -1518,43 +1387,199 @@ function showCoach(msg, kind){
   showCoach._t = setTimeout(()=>{ el.style.display='none'; }, 6000);
 }
 /* 依評分損失換算「此著正確率」（損失越小越接近 100%） */
+/* ==================== AI 教練：著法分級 ====================
+   依「與引擎首選的評分差距（centipawn loss）」分級，並用引擎推導具體原因。
+   妙手＝走出首選、且主動棄子（付出子力卻仍是最佳），非單純好棋。          */
+const MOVE_GRADES = [
+  { key:'brilliant',  label:'妙手',     icon:'✦', color:'#7BD8E8', tone:'good',
+    desc:'棄子取勢，這步需要算度' },
+  { key:'best',       label:'最佳',     icon:'★', color:'#6FCF6F', tone:'good',
+    desc:'引擎首選' },
+  { key:'excellent',  label:'優秀',     icon:'✔', color:'#8FD08F', tone:'good',
+    desc:'與首選幾乎無差' },
+  { key:'good',       label:'好棋',     icon:'○', color:'#C9D88A', tone:'good',
+    desc:'穩健的一步' },
+  { key:'inaccuracy', label:'不夠精確', icon:'△', color:'#E8CD7A', tone:'',
+    desc:'有更好的下法' },
+  { key:'mistake',    label:'失誤',     icon:'✖', color:'#E8A050', tone:'warn',
+    desc:'讓出明顯優勢' },
+  { key:'blunder',    label:'漏著',     icon:'⚠', color:'#E05050', tone:'warn',
+    desc:'嚴重失誤，局面可能就此逆轉' }
+];
+const GRADE = Object.fromEntries(MOVE_GRADES.map(g=>[g.key,g]));
+
+function gradeMove(lossCp, isBest, isBrilliant){
+  if(isBest && isBrilliant) return GRADE.brilliant;
+  if(isBest)          return GRADE.best;
+  if(lossCp < 20)     return GRADE.excellent;
+  if(lossCp < 50)     return GRADE.good;
+  if(lossCp < 120)    return GRADE.inaccuracy;
+  if(lossCp < 300)    return GRADE.mistake;
+  return GRADE.blunder;
+}
+
+/* 某格是否被指定方保護（可回吃） */
+function isDefendedXQ(pieces, col, row, bySide){
+  const alive = pieces.filter(p=>p.alive!==false);
+  return alive.some(p=>p.side===bySide && isLegalMoveXQ(alive, bySide, [p.col,p.row], [col,row]));
+}
+
+/* 對方最佳「有利可圖」的吃子淨收益（已計入我方回吃） */
+function materialAtRisk(piecesAfter, oppSide){
+  const alive = piecesAfter.filter(p=>p.alive!==false);
+  const mySide = oppSide==='r' ? 'b' : 'r';
+  const b = buildBoard(alive);
+  let bestNet = 0, victim = null;
+  for(const mv of genMoves(b, oppSide)){
+    const target = alive.find(p=>p.col===mv.tc && p.row===mv.tr && p.side===mySide);
+    if(!target) continue;
+    const tv = ENG_VAL[pieceCategory(target.type)] || 0;
+    if(tv >= 50000) continue;                       // 將帥不列入子力計算
+    const attacker = alive.find(p=>p.col===mv.fc && p.row===mv.fr);
+    const av = attacker ? (ENG_VAL[pieceCategory(attacker.type)] || 0) : 0;
+    /* 模擬吃完後，我方能否回吃該格 */
+    const sim = alive.filter(p=>p!==target).map(p=>({...p}));
+    const am = sim.find(p=>p.col===mv.fc && p.row===mv.fr);
+    if(am){ am.col=mv.tc; am.row=mv.tr; }
+    const recapture = isDefendedXQ(sim, mv.tc, mv.tr, mySide);
+    const net = recapture ? (tv - av) : tv;         // 有回吃則淨賺＝被吃子－對方賠上的子
+    if(net > bestNet){ bestNet = net; victim = target; }
+  }
+  return {value:bestNet, piece:victim};
+}
+
+/* 依引擎資料推導具體原因（只列舉可驗證的事實，不做空泛評語） */
+function detectMoveReasons(from, to, pieces, side, la, isBest){
+  const reasons = [];
+  const oppSide = side==='r' ? 'b' : 'r';
+
+  /* 模擬走完這一步 */
+  const after = pieces.map(p=>({...p, alive:p.alive!==false}));
+  const capIdx = after.findIndex(p=>p.alive && p.col===to[0] && p.row===to[1] && p.side!==side);
+  const captured = capIdx>=0 ? after[capIdx] : null;
+  if(captured) captured.alive=false;
+  const mover = after.find(p=>p.alive && p.col===from[0] && p.row===from[1]);
+  if(!mover) return reasons;
+  mover.col=to[0]; mover.row=to[1];
+
+  const moverVal = ENG_VAL[pieceCategory(mover.type)] || 0;
+  const gained   = captured ? (ENG_VAL[pieceCategory(captured.type)] || 0) : 0;
+  const riskAfter  = materialAtRisk(after, oppSide);
+  const riskBefore = materialAtRisk(pieces.map(p=>({...p, alive:p.alive!==false})), oppSide);
+  /* 只計「這一步新造成」的損失，原本就存在的威脅不算在這步頭上 */
+  const newRisk = riskAfter.value - Math.max(riskBefore.value, gained);
+
+  /* 1. 這步讓子力落空 */
+  if(newRisk > 60){
+    reasons.push('走後對方可吃掉'+(riskAfter.piece?('你的'+riskAfter.piece.type):'子力')
+                 +'（淨損約 '+(newRisk/100).toFixed(1)+' 分）');
+  }
+  /* 2. 錯過吃子機會 */
+  if(!isBest && la && la.all && la.all.length){
+    const bm = la.all[0].m;
+    const bestTarget = pieces.find(p=>p.alive!==false && p.col===bm.tc && p.row===bm.tr && p.side!==side);
+    if(bestTarget && !captured){
+      reasons.push('錯過吃'+bestTarget.type+'的機會');
+    }
+  }
+  /* 3. 中路控制 */
+  if(!isBest && la && la.all && la.all.length){
+    const bm = la.all[0].m;
+    if(bm.tc===4 && to[0]!==4) reasons.push('首選是搶佔中路，此步放棄了中路控制');
+  }
+  /* 4. 形勢由優轉劣 */
+  if(la && typeof la.rootScore==='number'){
+    const before = la.rootScore, now = la.all ? (la.all.find(s=>
+      s.m.fc===from[0]&&s.m.fr===from[1]&&s.m.tc===to[0]&&s.m.tr===to[1]) || {}).score : undefined;
+    if(typeof now==='number' && before>=30 && now<=-30) reasons.push('形勢由領先轉為落後');
+  }
+  return reasons.slice(0,2);
+}
+
+/* 判斷是否為「妙手」：走出首選、且主動付出子力 */
+function isBrilliantMove(from, to, pieces, side){
+  const oppSide = side==='r' ? 'b' : 'r';
+  const after = pieces.map(p=>({...p, alive:p.alive!==false}));
+  const capIdx = after.findIndex(p=>p.alive && p.col===to[0] && p.row===to[1] && p.side!==side);
+  const captured = capIdx>=0 ? after[capIdx] : null;
+  if(captured) captured.alive=false;
+  const mover = after.find(p=>p.alive && p.col===from[0] && p.row===from[1]);
+  if(!mover) return false;
+  mover.col=to[0]; mover.row=to[1];
+  const gained = captured ? (ENG_VAL[pieceCategory(captured.type)]||0) : 0;
+  const riskAfter = materialAtRisk(after, oppSide);
+  const riskBefore = materialAtRisk(pieces.map(p=>({...p, alive:p.alive!==false})), oppSide);
+  const netLoss = riskAfter.value - Math.max(riskBefore.value, gained);
+  /* 本步新增淨損 1.5 分以上子力仍是引擎首選 → 視為棄子妙手 */
+  return netLoss >= 150;
+}
+
 function moveAccuracy(lossCp){
   const l = Math.max(0, lossCp);
   return Math.max(15, Math.round(100 * Math.exp(-l/260)));
 }
+
+/* 本局各方正確率統計 */
+function pushCoachStat(side, acc, gradeKey){
+  const st = AppState.analysis.coachStats;
+  st[side].push({acc, grade:gradeKey});
+}
+function coachSummary(){
+  const st = AppState.analysis.coachStats;
+  const avg = arr => arr.length ? Math.round(arr.reduce((a,b)=>a+b.acc,0)/arr.length) : null;
+  return {r:avg(st.r), b:avg(st.b), rn:st.r.length, bn:st.b.length};
+}
+function renderCoachSummary(){
+  const el = document.getElementById('coachStats');
+  if(!el) return;
+  const s = coachSummary();
+  if(!s.rn && !s.bn){ el.style.display='none'; return; }
+  el.style.display='block';
+  const part = (label,v,n)=> v===null ? '' :
+    '<span style="margin-right:12px;">'+label+' <b style="color:#F0D48A;">'+v+'%</b>'+
+    '<span style="opacity:.6;">（'+n+' 步）</span></span>';
+  el.innerHTML = '本局正確率　'+part('紅方',s.r,s.rn)+part('黑方',s.b,s.bn);
+}
+
 function coachFeedback(from, to, notation, pieces, sideToMove){
-  const la = lastRootAnalysis;
-  if(!la || la.ply!==recordedMoves.length || !la.all || !la.all.length) return;
+  const la = AppState.analysis.lastRoot;
+  if(!la || la.ply!==AppState.rec.moves.length || !la.all || !la.all.length) return;
   const played = la.all.find(s=>s.m.fc===from[0]&&s.m.fr===from[1]&&s.m.tc===to[0]&&s.m.tr===to[1]);
   if(!played) return;
   const best = la.all[0];
   const lossCp = Math.max(0, best.score - played.score);
-  const acc = moveAccuracy(lossCp);
   const isBest = best.m.fc===from[0]&&best.m.fr===from[1]&&best.m.tc===to[0]&&best.m.tr===to[1];
-  const accTag = '<span style="opacity:.85;">此著正確率 '+acc+'%</span>';
+  const brilliant = isBest && isBrilliantMove(from, to, pieces, sideToMove);
+  const g = gradeMove(lossCp, isBest, brilliant);
+  const acc = moveAccuracy(lossCp);
+  const reasons = isBest ? [] : detectMoveReasons(from, to, pieces, sideToMove, la, isBest);
 
-  if(isBest){
-    showCoach('✔ '+notation+'：正是引擎首選！'+accTag, 'good');
-  } else if(lossCp >= 120){
-    showCoach('⚠ '+notation+'：此步會損失 '+(lossCp/100).toFixed(2)+' 分，建議改走 <b>'+la.topNotation+'</b>。'+accTag, 'warn');
-  } else if(lossCp >= 40){
-    showCoach('△ '+notation+'：可行，但 <b>'+la.topNotation+'</b> 稍優（差約 '+(lossCp/100).toFixed(2)+' 分）。'+accTag, '');
-  } else {
-    showCoach('○ '+notation+'：好棋，與首選相當。'+accTag, 'good');
-  }
+  pushCoachStat(sideToMove, acc, g.key);
+  renderCoachSummary();
+
+  const badge = '<span style="display:inline-block;padding:1px 8px;margin-right:6px;border-radius:6px;'+
+    'background:'+g.color+'22;border:1px solid '+g.color+';color:'+g.color+';font-weight:800;">'+
+    g.icon+' '+g.label+'</span>';
+  let html = badge+'<b>'+notation+'</b>　<span style="opacity:.8;">正確率 '+acc+'%</span>';
+  if(!isBest) html += '　<span style="opacity:.7;">損失 '+(lossCp/100).toFixed(2)+' 分</span>';
+  if(reasons.length) html += '<br><span style="opacity:.9;">原因：'+reasons.join('；')+'</span>';
+  if(!isBest && la.topNotation) html += '<br>建議改走 <b style="color:#8FC8E8;">'+la.topNotation+'</b>';
+  else if(brilliant) html += '<br><span style="opacity:.85;">'+g.desc+'</span>';
+
+  showCoach(html, g.tone);
 }
 
 function renderRecordedList(){
   const wrap = document.getElementById('movesList');
   wrap.innerHTML='';
-  if(recordedMoves.length===0){
-    const hint = flipBoard
+  if(AppState.rec.moves.length===0){
+    const hint = AppState.rec.flip
       ? '後手記譜模式：黑子在下方。規則上仍是紅方（上方）先行——先點上方紅子走第1步，再輪黑方。'
       : '先手記譜模式：紅方先行。點選棋子，再點目的地即可走子並自動產生記譜。';
     wrap.innerHTML='<span style="font-size:.78rem;color:#C9B48A;">'+hint+'</span>';
     return;
   }
-  recordedMoves.forEach((mv,i)=>{
+  AppState.rec.moves.forEach((mv,i)=>{
     const chip=document.createElement('span');
     chip.className='move-chip active';
     chip.textContent=(i+1)+'. '+mv.notation;
@@ -1566,14 +1591,16 @@ const btnRecRed=document.getElementById('btnRecRed');
 const btnRecBlack=document.getElementById('btnRecBlack');
 
 function startRecording(flip){
-  recording = true;
-  flipBoard = flip;
-  if(playTimer){ clearInterval(playTimer); playTimer=null; document.getElementById('btnPlay').innerHTML='&#9654;'; }
-  selectedPos=null;
+  AppState.analysis.coachStats={r:[],b:[]};
+  if(document.getElementById('coachStats')) document.getElementById('coachStats').style.display='none';
+  AppState.rec.on = true;
+  AppState.rec.flip = flip;
+  if(AppState.nav.playTimer){ clearInterval(AppState.nav.playTimer); AppState.nav.playTimer=null; document.getElementById('btnPlay').innerHTML='&#9654;'; }
+  AppState.rec.selected=null;
   const active = flip ? btnRecBlack : btnRecRed;
   const other  = flip ? btnRecRed : btnRecBlack;
   active.textContent='✎ 結束記譜';
-  active.classList.add('recording');
+  active.classList.add('AppState.rec.on');
   other.disabled=true;
   other.style.opacity='.45';
   renderRecordedList();
@@ -1583,41 +1610,41 @@ function startRecording(flip){
 }
 
 function stopRecording(){
-  recording = false;
-  flipBoard = (sideSelect.value==='後手');   // 依目前選取的先/後手還原棋盤視角
-  selectedPos=null;
+  AppState.rec.on = false;
+  AppState.rec.flip = (sideSelect.value==='後手');   // 依目前選取的先/後手還原棋盤視角
+  AppState.rec.selected=null;
   btnRecRed.textContent='✎ 先手記譜';
   btnRecBlack.textContent='✎ 後手記譜';
-  btnRecRed.classList.remove('recording');
-  btnRecBlack.classList.remove('recording');
+  btnRecRed.classList.remove('AppState.rec.on');
+  btnRecBlack.classList.remove('AppState.rec.on');
   btnRecRed.disabled=false; btnRecBlack.disabled=false;
   btnRecRed.style.opacity=''; btnRecBlack.style.opacity='';
   document.getElementById('searchResults').classList.remove('show');
-  document.getElementById('analysisPanel').classList.toggle('show', currentMoves.length>0);
+  document.getElementById('analysisPanel').classList.toggle('show', AppState.nav.moves.length>0);
   renderMovesList();
   renderBoard();
 }
 
 btnRecRed.addEventListener('click', ()=>{
-  if(recording){ stopRecording(); } else { startRecording(false); }
+  if(AppState.rec.on){ stopRecording(); } else { startRecording(false); }
 });
 btnRecBlack.addEventListener('click', ()=>{
-  if(recording){ stopRecording(); } else { startRecording(true); }
+  if(AppState.rec.on){ stopRecording(); } else { startRecording(true); }
 });
 
 document.getElementById('btnUndo').addEventListener('click', ()=>{
-  if(!recording || recordedMoves.length===0) return;
-  recordedMoves.pop();
-  selectedPos=null;
+  if(!AppState.rec.on || AppState.rec.moves.length===0) return;
+  AppState.rec.moves.pop();
+  AppState.rec.selected=null;
   renderRecordedList();
   renderBoard();
   analyzePosition();
 });
 
 document.getElementById('btnClearRec').addEventListener('click', ()=>{
-  if(!recording) return;
-  recordedMoves=[];
-  selectedPos=null;
+  if(!AppState.rec.on) return;
+  AppState.rec.moves=[];
+  AppState.rec.selected=null;
   document.getElementById('searchResults').classList.remove('show');
   renderRecordedList();
   renderBoard();
@@ -1712,7 +1739,7 @@ function matchKnownLines(notas){
 
 document.getElementById('btnSearchOpen').addEventListener('click', ()=>{
   const box = document.getElementById('searchResults');
-  const notas = (recording?recordedMoves:currentMoves.slice(0,currentIndex)).map(m=>normalizeNotation(m.notation));
+  const notas = (AppState.rec.on?AppState.rec.moves:AppState.nav.moves.slice(0,AppState.nav.index)).map(m=>normalizeNotation(m.notation));
   box.innerHTML='';
   if(notas.length===0){
     box.innerHTML='<div class="sr-empty">目前棋盤還沒有任何走子。請先開始記譜並走幾步，或先播放某個棋譜，再按搜尋。</div>';
@@ -1728,8 +1755,8 @@ document.getElementById('btnSearchOpen').addEventListener('click', ()=>{
     seen.add(k); return true;
   });
   // 依記譜視角優先排序：後手記譜優先顯示後手分類，先手記譜優先顯示先手分類
-  if(recording){
-    const pref = flipBoard ? '後手' : '先手';
+  if(AppState.rec.on){
+    const pref = AppState.rec.flip ? '後手' : '先手';
     all = [...all.filter(r=>r.side===pref), ...all.filter(r=>r.side!==pref)];
   }
   if(all.length===0){
@@ -1778,6 +1805,46 @@ function tokenizeRecord(text){
 
 /* ---------- 多格式棋譜解析（PlayOK/WXF、ICCS/UCI 座標、東萍 DhtmlXQ） ---------- */
 const WXF_TOKEN_RE = /^[+\-]?[CHRPEAKNB][1-9]?[.=+\-][1-9]$/i;
+
+/* 從東萍 DhtmlXQ 棋譜碼擷取對局中繼資料（棋手、賽事、日期、勝負） */
+function parseDhtmlXqMeta(text){
+  const tag = (name)=>{
+    const m = text.match(new RegExp('\\[DhtmlXQ_'+name+'\\]([\\s\\S]*?)\\[\\/DhtmlXQ_'+name+'\\]','i'));
+    return m ? m[1].trim() : '';
+  };
+  const stripTeam = (s)=>{           // 「杭州 王天一」→ 取棋手名
+    const parts = s.split(/[\s　]+/).filter(Boolean);
+    return parts.length>1 ? parts[parts.length-1] : s;
+  };
+  const red   = tag('redname')   || stripTeam(tag('red'));
+  const black = tag('blackname') || stripTeam(tag('black'));
+  if(!red && !black) return null;
+  const rawResult = tag('result');
+  const result = /紅勝|红胜/.test(rawResult) ? '紅勝'
+               : /黑勝|黑胜/.test(rawResult) ? '黑勝'
+               : /和/.test(rawResult) ? '和局' : (rawResult||'');
+  return {
+    red, black,
+    redTeam: tag('redteam'), blackTeam: tag('blackteam'),
+    event: tag('event'), round: tag('round'),
+    date: (tag('date')||'').slice(0,10),
+    result, open: tag('open'), place: tag('place')
+  };
+}
+
+/* 賽事名稱 → 大師棋庫分類（可依需要擴充） */
+const EVENT_CATEGORIES = [
+  { cat:'2026全國冠軍', test:/2026.*(全國|全国).*(individual|個人|个人|冠軍|冠军|錦標|锦标)/i },
+  { cat:'全國冠軍',     test:/(全國|全国).*(個人|个人|冠軍|冠军|錦標|锦标|棋王|大棋聖|大棋圣)/ },
+  { cat:'亞錦賽',       test:/(亞洲|亚洲|亞錦|亚锦)/ },
+  { cat:'世界盃',       test:/世界.*(盃|杯|錦標|锦标|冠軍|冠军|團體|团体)|世錦|世锦|world/i },
+  { cat:'象甲聯賽',     test:/(象甲|甲級|甲级)/ }
+];
+function categorizeEvent(eventName){
+  const e = String(eventName||'');
+  for(const r of EVENT_CATEGORIES) if(r.test.test(e)) return r.cat;
+  return e ? '其他賽事' : '大師對局';
+}
 
 function detectRecordFormat(text){
   if(/\[DhtmlXQ_movelist\]/i.test(text)) return 'dhtmlxq';
@@ -1932,11 +1999,10 @@ function refreshImportCategoryOptions(){
   });
 }
 
-let importedGames = [];
 function persistImports(){
   try{
     if(window.storage && window.storage.set){
-      window.storage.set('xiangqi_imported_games', JSON.stringify(importedGames));
+      window.storage.set('xiangqi_imported_games', JSON.stringify(AppState.library.imported));
     }
   }catch(e){ /* 無持久儲存環境，僅保留於本次瀏覽 */ }
 }
@@ -1948,7 +2014,7 @@ function addImportedGame(side, cat, name, tokens, save){
   const entry = ensureCategory(side, cat);
   entry.lines.push({name, desc:'由匯入棋譜功能加入，共 '+tokens.length+' 步（'+Math.ceil(tokens.length/2)+' 回合）。', moves});
   if(save!==false){
-    importedGames.push({side, cat, name, tokens});
+    AppState.library.imported.push({side, cat, name, tokens});
     persistImports();
   }
   return {ok:true};
@@ -1976,13 +2042,35 @@ document.getElementById('btnDoImport').addEventListener('click', ()=>{
   }catch(e){ msg.textContent='解析失敗：'+e.message; msg.classList.add('err'); return; }
   if(tokens.length<2){ msg.textContent='無法從文字中辨識出著法。支援格式：中文記譜（炮二平五 馬2進3）、PlayOK/WXF（C2.5 h8+7）、ICCS 座標（H2-E2）、東萍 DhtmlXQ。'; msg.classList.add('err'); return; }
 
+  /* 東萍棋譜含對局中繼資料 → 直接歸入大師棋庫（棋手／賽事／日期／勝負） */
+  const meta = (fmt==='dhtmlxq') ? parseDhtmlXqMeta(raw) : null;
+  if(meta){
+    const evCat = categorizeEvent(meta.event);
+    const r = addMasterGame({
+      red: meta.red, black: meta.black, event: meta.event,
+      date: meta.date, result: meta.result,
+      side: '先手', category: evCat, tokens
+    });
+    if(!r.ok){ msg.textContent='棋譜有誤：'+r.err; msg.classList.add('err'); return; }
+    populateCategories();
+    refreshImportCategoryOptions();
+    renderMasterResults(searchMasterGames(''));
+    msg.innerHTML='✔ 已加入大師棋庫：<b>'+meta.red+'</b> 對 <b>'+meta.black+'</b>'+
+      (meta.result?('（'+meta.result+'）'):'')+'<br>'+
+      '賽事：'+(meta.event||'未註明')+(meta.round?('・'+meta.round):'')+
+      (meta.date?('・'+meta.date):'')+'　共 '+tokens.length+' 步<br>'+
+      '已歸類至 <b>先手｜'+evCat+'</b>，可用「🏆 大師棋庫」搜尋棋手或賽事。';
+    document.getElementById('impText').value='';
+    return;
+  }
+
   let side, cat, why='手動指定分類';
   const chosen=document.getElementById('impCategory').value;
   if(chosen==='auto' || chosen.indexOf('auto:')===0){
     // 優先視角：強制指定 > 記譜模式的記譜方 > 上方先/後手選單
     const preferSide = chosen==='auto:先手' ? '先手'
                      : chosen==='auto:後手' ? '後手'
-                     : recording ? (flipBoard?'後手':'先手')
+                     : AppState.rec.on ? (AppState.rec.flip?'後手':'先手')
                      : sideSelect.value;
     const result=classifyForSave(tokens, preferSide);
     if(result && (chosen==='auto' || result.side===chosen.slice(5))){
@@ -2003,7 +2091,7 @@ document.getElementById('btnDoImport').addEventListener('click', ()=>{
   }
 
   let name=document.getElementById('impName').value.trim();
-  if(!name) name='匯入棋譜（'+Math.ceil(tokens.length/2)+'回合）#'+(importedGames.length+1);
+  if(!name) name='匯入棋譜（'+Math.ceil(tokens.length/2)+'回合）#'+(AppState.library.imported.length+1);
 
   const r=addImportedGame(side, cat, name, tokens);
   if(!r.ok){ msg.textContent='解析失敗：'+r.err; msg.classList.add('err'); return; }
@@ -2029,7 +2117,7 @@ document.getElementById('btnDoImport').addEventListener('click', ()=>{
       if(r && r.value){
         const saved=JSON.parse(r.value);
         saved.forEach(g=>{ addImportedGame(g.side, g.cat, g.name, g.tokens, false); });
-        importedGames = saved;
+        AppState.library.imported = saved;
         if(saved.length>0) populateCategories();
       }
     }
@@ -2262,7 +2350,6 @@ function uciToCoords(uci){
   return {from:[fc,fr], to:[tc,tr]};
 }
 
-let analysisSeq = 0;
 
 function renderAnalysis(pieces, stm, best, top3, sourceLabel){
   const evalText = document.getElementById('evalText');
@@ -2283,20 +2370,20 @@ function renderAnalysis(pieces, stm, best, top3, sourceLabel){
     const div=document.createElement('div');
     div.className='best-move';
     div.innerHTML='<span class="bm-rank">'+(i+1)+'</span><span class="bm-move">'+label+'</span><span class="bm-score">評分 紅方 '+(rs>=0?'+':'')+(rs/100).toFixed(2)+'</span>';
-    div.title = recording ? '點擊直接走這一步' : '點擊從此局面接續記譜推演';
+    div.title = AppState.rec.on ? '點擊直接走這一步' : '點擊從此局面接續記譜推演';
     div.addEventListener('click', ()=>{
-      if(!recording){
+      if(!AppState.rec.on){
         // 播放模式：以目前瀏覽到的局面為起點，切入記譜模式接續推演
-        const seed = currentMoves.slice(0, currentIndex).map(m=>({from:[...m.from], to:[...m.to], notation:m.notation}));
-        startRecording(flipBoard);
-        recordedMoves = seed;
+        const seed = AppState.nav.moves.slice(0, AppState.nav.index).map(m=>({from:[...m.from], to:[...m.to], notation:m.notation}));
+        startRecording(AppState.rec.flip);
+        AppState.rec.moves = seed;
       }
-      const nowPieces = computeBoardAt(recordedMoves.length, recordedMoves);
+      const nowPieces = computeBoardAt(AppState.rec.moves.length, AppState.rec.moves);
       const m = nowPieces.find(p=>p.col===from[0] && p.row===from[1]);
       if(!m) return;
       const notation = genNotation(nowPieces, m, from, to);
-      recordedMoves.push({from:[...from], to:[...to], notation});
-      selectedPos=null;
+      AppState.rec.moves.push({from:[...from], to:[...to], notation});
+      AppState.rec.selected=null;
       renderRecordedList();
       renderBoard();
       analyzePosition();
@@ -2306,9 +2393,9 @@ function renderAnalysis(pieces, stm, best, top3, sourceLabel){
 }
 
 function analyzePosition(){
-  const movesArr = recording ? recordedMoves : currentMoves.slice(0, currentIndex);
-  if(!recording && currentMoves.length===0) return;   // 播放模式但無棋譜可分析
-  const seq = ++analysisSeq;
+  const movesArr = AppState.rec.on ? AppState.rec.moves : AppState.nav.moves.slice(0, AppState.nav.index);
+  if(!AppState.rec.on && AppState.nav.moves.length===0) return;   // 播放模式但無棋譜可分析
+  const seq = ++AppState.analysis.seq;
   const evalText = document.getElementById('evalText');
   evalText.textContent = '分析中…';
   const pieces = computeBoardAt(movesArr.length, movesArr);
@@ -2316,9 +2403,9 @@ function analyzePosition(){
 
   // 內建引擎立即分析（保證可用）
   setTimeout(()=>{
-    if(seq !== analysisSeq) return;
+    if(seq !== AppState.analysis.seq) return;
     const r = localAnalyze(pieces, stm);
-    if(seq !== analysisSeq) return;
+    if(seq !== AppState.analysis.seq) return;
     if(!r.top.length){
       evalText.textContent = (stm==='w'?'紅方':'黑方')+'無合法著法（已被將死）';
       document.getElementById('bestMoves').innerHTML='';
@@ -2326,17 +2413,17 @@ function analyzePosition(){
     }
     const top3 = r.top.map(s=>({from:[s.m.fc,s.m.fr], to:[s.m.tc,s.m.tr], score:s.score}));
     /* 供 AI 教練比對：記住此局面所有根著法評分與首選記譜 */
-    if(recording && r.all && r.all.length){
+    if(AppState.rec.on && r.all && r.all.length){
       const bm = r.all[0].m;
       const bp = pieces.find(p=>p.col===bm.fc && p.row===bm.fr);
-      lastRootAnalysis = {
-        ply: movesArr.length, stm,
+      AppState.analysis.lastRoot = {
+        ply: movesArr.length, stm, rootScore: r.best,
         all: r.all,
         topNotation: bp ? genNotation(pieces, bp, [bm.fc,bm.fr], [bm.tc,bm.tr]) : ''
       };
     }
     renderAnalysis(pieces, stm, r.best, top3, '內建引擎');
-    if(PF.state==='ready') tryPikafishAnalysis(pieces, stm, seq);   // 已啟用 Pikafish → 用真實引擎升級
+    if(AppState.engine.state==='ready') tryPikafishAnalysis(pieces, stm, seq);   // 已啟用 Pikafish → 用真實引擎升級
     else tryCloudAnalysis(pieces, stm, seq);                         // 否則背景嘗試雲庫
   }, 30);
 }
@@ -2344,15 +2431,15 @@ function analyzePosition(){
 /* Pikafish WASM 分析（最高優先，含深度與 PV 中文主變化） */
 async function tryPikafishAnalysis(pieces, stm, seq){
   try{
-    const movetime = (playTimer ? 700 : 1400);   // 自動播放時縮短思考
+    const movetime = (AppState.nav.playTimer ? 700 : 1400);   // 自動播放時縮短思考
     const r = await pfAnalyze(pieces, stm, movetime);
-    if(seq !== analysisSeq || !r) return;
-    /* 供教練比對：把 Pikafish top 著法寫入 lastRootAnalysis */
-    if(recording && r.top3.length){
+    if(seq !== AppState.analysis.seq || !r) return;
+    /* 供教練比對：把 Pikafish top 著法寫入 AppState.analysis.lastRoot */
+    if(AppState.rec.on && r.top3.length){
       const bm=r.top3[0];
       const bp=pieces.find(p=>p.col===bm.from[0]&&p.row===bm.from[1]);
-      lastRootAnalysis = {
-        ply: (recording?recordedMoves.length:currentIndex), stm,
+      AppState.analysis.lastRoot = {
+        ply: (AppState.rec.on?AppState.rec.moves.length:AppState.nav.index), stm,
         all: r.top3.map(e=>({m:{fc:e.from[0],fr:e.from[1],tc:e.to[0],tr:e.to[1]}, score:e.score})),
         topNotation: bp ? genNotation(pieces, bp, bm.from, bm.to) : ''
       };
@@ -2376,7 +2463,7 @@ async function tryCloudAnalysis(pieces, stm, seq){
     const resp = await fetch('https://www.chessdb.cn/chessdb.php?action=queryall&board='+encodeURIComponent(fen), {cache:'no-store', signal:ctrl.signal});
     clearTimeout(timer);
     const text = (await resp.text()).trim();
-    if(seq !== analysisSeq) return;
+    if(seq !== AppState.analysis.seq) return;
     if(!text || text.startsWith('invalid') || text==='unknown' || text.startsWith('nobestmove') || text.startsWith('checkmate')) return;
     const entries = text.split('|').map(seg=>{
       const o={};
@@ -2393,11 +2480,10 @@ async function tryCloudAnalysis(pieces, stm, seq){
 }
 
 /* ==================== 形勢曲線（勝率圖） ==================== */
-let _curveCache = {key:'', vals:[]};
 
 function computeEvalCurve(movesArr){
   const key = movesArr.map(m=>m.notation).join(',');
-  if(_curveCache.key===key) return _curveCache.vals;
+  if(AppState.analysis.curveCache.key===key) return AppState.analysis.curveCache.vals;
   const vals=[];
   for(let i=0;i<=movesArr.length;i++){
     const pieces = computeBoardAt(i, movesArr);
@@ -2406,7 +2492,7 @@ function computeEvalCurve(movesArr){
     const sc = qsearch(b, side, -Infinity, Infinity, 4);
     vals.push(side==='r' ? sc : -sc);   // 統一為紅方視角
   }
-  _curveCache = {key, vals};
+  AppState.analysis.curveCache = {key, vals};
   return vals;
 }
 
@@ -2452,55 +2538,236 @@ function renderEvalCurve(movesArr, curIdx){
 
   /* 點擊跳步（僅播放模式；記譜模式不跳） */
   svg.onclick = (ev)=>{
-    if(recording) return;
+    if(AppState.rec.on) return;
     const rect=svg.getBoundingClientRect();
     const ratio=(ev.clientX-rect.left)/rect.width;
     const target=Math.round(ratio*(n-1));
-    currentIndex=Math.max(0, Math.min(target, currentMoves.length));
+    AppState.nav.index=Math.max(0, Math.min(target, AppState.nav.moves.length));
     stopPlay();
     renderMovesList();
     renderBoard();
   };
 }
 
-/* ==================== 外部 JSON 棋庫（選用） ====================
-   與本檔同資料夾若有 openings/index.json，啟動時自動載入並併入分類。
-   格式：index.json = ["pingfengma.json", "liepao.json", ...]
-   每份棋譜檔 = { "games":[ {"side":"先手","category":"中砲對屏風馬",
-                            "name":"對局名","tokens":["炮二平五","馬8進7",...]} ] }
-   檔案不存在（file:// 或未部署）時靜默略過，不影響內建棋譜。          */
-async function loadExternalOpenings(){
-  try{
-    if(location.protocol==='file:') return;                    // 本機開啟時 fetch 受限，直接略過
-    const idxResp = await fetch('openings/index.json', {cache:'no-store'});
-    if(!idxResp.ok) return;
-    const files = await idxResp.json();
-    if(!Array.isArray(files) || !files.length) return;
-    let added=0, failed=0;
-    for(const f of files){
-      try{
-        const r = await fetch('openings/'+f, {cache:'no-store'});
-        if(!r.ok){ failed++; continue; }
-        const data = await r.json();
-        const games = Array.isArray(data) ? data : (data.games||[]);
-        for(const g of games){
-          if(!g || !g.side || !g.category || !Array.isArray(g.tokens)) { failed++; continue; }
-          const res = addImportedGame(g.side, g.category, g.name || ('外部棋譜#'+(added+1)), g.tokens, false);
-          if(res.ok) added++; else failed++;
-        }
-      }catch(e){ failed++; }
+/* ==================== 棋譜庫載入（openings/*.json） ====================
+   index.json 列出所有棋譜檔。支援兩種格式：
+   (1) 開局檔 { "side","category","intro","lines":[{name,desc,tokens|playlistId|videoUrl}] }
+   (2) 對局集 { "games":[{side,category,name,tokens}] }
+   載入完成後才建立分類選單。                                              */
+function ensureCategoryIntro(side, cat, intro){
+  const e = ensureCategory(side, cat, intro);
+  if(intro) e.intro = intro;          // 覆寫 ensureCategory 的預設說明
+  return e;
+}
+function addLibraryLine(side, cat, line){
+  const e = ensureCategory(side, cat);
+  if(Array.isArray(line.tokens) && line.tokens.length){
+    let moves;
+    try{ moves = buildMovesFromNotation(line.tokens); }
+    catch(err){ return {ok:false, err:(line.name||'')+'：'+err.message}; }
+    e.lines.push({name:line.name, desc:line.desc||'', moves});
+  } else {
+    const o = {name:line.name, desc:line.desc||'', moves:[]};
+    if(line.playlistId) o.playlistId = line.playlistId;
+    if(line.videoUrl)   o.videoUrl   = line.videoUrl;
+    e.lines.push(o);
+  }
+  return {ok:true};
+}
+
+async function loadOpeningLibrary(){
+  const note = document.getElementById('extLibNote');
+  const show = (txt, bad)=>{
+    if(!note) return;
+    note.style.display='block';
+    note.textContent = txt;
+    if(bad){
+      note.style.background='rgba(160,60,40,.18)';
+      note.style.borderColor='rgba(224,110,90,.45)';
+      note.style.color='#FFC0B0';
     }
-    if(added>0){
-      populateCategories();
-      refreshImportCategoryOptions();
-      const el=document.getElementById('extLibNote');
-      if(el){
-        el.style.display='block';
-        el.textContent='📚 已從外部棋庫載入 '+added+' 局'+(failed ? '（'+failed+' 局解析失敗）' : '');
+  };
+  try{
+    let files, getFile;
+    if(window.__EMBEDDED_OPENINGS){          // 離線單檔版：棋庫已內嵌
+      const emb = window.__EMBEDDED_OPENINGS;
+      files = Object.keys(emb).filter(k=>k!=='index.json');
+      getFile = async (f)=> emb[f];
+    } else {
+      if(location.protocol==='file:'){
+        show('⚠ 精簡版需以 http(s) 開啟才能載入 openings/ 棋庫。若要離線使用，請改用單檔版。', true);
+        return;
+      }
+      const idxResp = await fetch('openings/index.json', {cache:'no-store'});
+      if(!idxResp.ok) throw new Error('找不到 openings/index.json');
+      files = await idxResp.json();
+      if(!Array.isArray(files) || !files.length) throw new Error('index.json 是空的');
+      getFile = async (f)=>{
+        const r = await fetch('openings/'+f, {cache:'no-store'});
+        if(!r.ok) throw new Error('HTTP '+r.status);
+        return await r.json();
+      };
+    }
+
+    const results = await Promise.all(files.map(async f=>{
+      try{ return {file:f, data: await getFile(f)}; }
+      catch(e){ return {file:f, err:e.message}; }
+    }));
+
+    let nCat=0, nLine=0; const problems=[];
+    for(const res of results){
+      if(res.err){ problems.push(res.file+'（'+res.err+'）'); continue; }
+      const d = res.data;
+      if(d && d.category && Array.isArray(d.lines)){          // 開局檔
+        ensureCategoryIntro(d.side||'先手', d.category, d.intro);
+        nCat++;
+        for(const ln of d.lines){
+          const r = addLibraryLine(d.side||'先手', d.category, ln);
+          if(r.ok) nLine++; else problems.push(res.file+' → '+r.err);
+        }
+      } else if(d && Array.isArray(d.masters)){                // 大師對局檔
+        for(const g of d.masters){
+          const r = addMasterGame(g);
+          if(r.ok) nLine++; else problems.push(res.file+' → '+(r.err||'格式不符'));
+        }
+      } else {                                                 // 對局集
+        const games = Array.isArray(d) ? d : (d && d.games) || [];
+        for(const g of games){
+          if(!g || !g.side || !g.category || !Array.isArray(g.tokens)){ problems.push(res.file+'：格式不符'); continue; }
+          const r = addImportedGame(g.side, g.category, g.name || '外部棋譜', g.tokens, false);
+          if(r.ok) nLine++; else problems.push(res.file+' → '+r.err);
+        }
       }
     }
-  }catch(e){ /* 無外部棋庫：靜默略過 */ }
+
+    if(nLine===0) throw new Error('沒有成功載入任何棋譜');
+
+    populateCategories();
+    if(typeof refreshImportCategoryOptions==='function') refreshImportCategoryOptions();
+    show('📚 已載入 '+nCat+' 個開局、'+nLine+' 個條目'+(problems.length ? '（'+problems.length+' 項有問題）' : ''));
+    if(problems.length) console.warn('棋庫載入問題：', problems);
+  }catch(e){
+    show('⚠ 棋譜庫載入失敗：'+e.message+'　請確認 openings/ 資料夾已一併上傳。', true);
+    console.error('loadOpeningLibrary:', e);
+  }
 }
+
+/* ==================== 大師棋庫（對局後設資料 + 搜尋） ====================
+   對局來源檔格式（放 openings/，並在 index.json 列出）：
+   { "masters":[ { "red":"王天一", "black":"鄭惟桐", "event":"全國個人賽",
+                   "date":"2026-05-12", "result":"紅勝",
+                   "category":"中砲對屏風馬", "side":"先手",
+                   "tokens":["炮二平五","馬8進7", ...] } ] }
+   本程式不內附大師對局資料——請自行從合法來源取得後放入。            */
+
+function addMasterGame(g){
+  if(!g || !Array.isArray(g.tokens) || g.tokens.length<2) return {ok:false, err:'缺少著法'};
+  const side = g.side || '先手';
+  const cat  = g.category || '大師對局';
+  const label = (g.red||'紅方')+' 先勝負 '+(g.black||'黑方');
+  const name = (g.red||'?')+' vs '+(g.black||'?')
+             + (g.event?('・'+g.event):'')
+             + (g.date?('・'+String(g.date).slice(0,10)):'')
+             + (g.result?('・'+g.result):'');
+  const r = addImportedGame(side, cat, name, g.tokens, false);
+  if(!r.ok) return r;
+  const entry = DATA[side][cat];
+  AppState.library.masters.push({
+    red:g.red||'', black:g.black||'', event:g.event||'', date:String(g.date||''),
+    result:g.result||'', side, cat, name, lineIdx: entry.lines.length-1,
+    plies: g.tokens.length
+  });
+  return {ok:true};
+}
+
+function searchMasterGames(q){
+  const s = String(q||'').trim().toLowerCase();
+  if(!s) return AppState.library.masters.slice(0, 60);
+  const terms = s.split(/\s+/);
+  return AppState.library.masters.filter(g=>{
+    const hay = (g.red+' '+g.black+' '+g.event+' '+g.date+' '+g.result+' '+g.cat).toLowerCase();
+    return terms.every(t=>hay.includes(t));
+  }).slice(0, 60);
+}
+
+/* 依實際收錄的資料產生快速篩選鈕（棋手、賽事分類） */
+function renderMasterQuickFilters(){
+  const box=document.getElementById('mstQuick');
+  if(!box) return;
+  box.innerHTML='';
+  const games=AppState.library.masters;
+  if(!games.length) return;
+  const count=(arr)=>{ const m={}; arr.forEach(k=>{ if(k) m[k]=(m[k]||0)+1; }); return m; };
+  const players=count(games.flatMap(g=>[g.red,g.black]));
+  const cats=count(games.map(g=>g.cat));
+  const chip=(text,n,q,color)=>{
+    const b=document.createElement('button');
+    b.textContent=text+'（'+n+'）';
+    b.style.cssText='background:'+color+'22;color:'+color+';border:1px solid '+color+'66;'+
+      'border-radius:12px;padding:3px 10px;font-size:.68rem;cursor:pointer;font-family:inherit;';
+    b.addEventListener('click', ()=>{
+      document.getElementById('mstQuery').value=q;
+      renderMasterResults(searchMasterGames(q));
+    });
+    box.appendChild(b);
+  };
+  Object.keys(cats).sort((a,b)=>cats[b]-cats[a]).slice(0,6)
+    .forEach(c=>chip(c,cats[c],c,'#8FC8E8'));
+  Object.keys(players).sort((a,b)=>players[b]-players[a]).slice(0,8)
+    .forEach(p=>chip(p,players[p],p,'#E8CD7A'));
+}
+
+function renderMasterResults(list){
+  const box=document.getElementById('mstResults');
+  const msg=document.getElementById('mstMsg');
+  box.innerHTML='';
+  if(!AppState.library.masters.length){
+    msg.className='imp-msg';
+    msg.innerHTML='目前沒有大師對局資料。<b>最快的加入方式</b>：在東萍象棋網開啟對局頁，'+
+                  '複製整段 <code>[DhtmlXQ]…[/DhtmlXQ]</code> 棋譜碼，貼進「📋 匯入棋譜」按下匯入——'+
+                  '棋手、賽事、日期、勝負會自動填好並歸類。<br>'+
+                  '也可將對局檔放入 <b>openings/</b> 並在 index.json 列出（格式見 90-masters-template.json）。';
+    return;
+  }
+  msg.className='imp-msg';
+  msg.textContent='共 '+AppState.library.masters.length+' 局，顯示 '+list.length+' 筆。';
+  renderMasterQuickFilters();
+  if(!list.length){ box.innerHTML='<div class="sr-empty">沒有符合的對局。</div>'; return; }
+  list.forEach(g=>{
+    const div=document.createElement('div');
+    div.style.cssText='padding:7px 10px;margin:4px 0;border-radius:8px;background:rgba(0,0,0,.22);'+
+      'border:1px solid rgba(201,162,39,.28);cursor:pointer;font-size:.76rem;line-height:1.5;';
+    div.innerHTML='<b style="color:#F0D48A;">'+(g.red||'?')+'</b> <span style="opacity:.6;">先對</span> '+
+      '<b style="color:#CDE6F5;">'+(g.black||'?')+'</b>'+
+      (g.result?' <span style="color:#A8E0C0;">'+g.result+'</span>':'')+
+      '<br><span style="opacity:.75;">'+[g.event,g.date,g.cat,g.plies+'步'].filter(Boolean).join('　')+'</span>';
+    div.addEventListener('click', ()=>{
+      sideSelect.value=g.side;
+      populateCategories();
+      selectCategory(g.cat, g.lineIdx);
+      document.getElementById('masterPanel').classList.remove('show');
+    });
+    box.appendChild(div);
+  });
+}
+
+document.getElementById('btnMaster').addEventListener('click', ()=>{
+  const p=document.getElementById('masterPanel');
+  const showing=p.classList.toggle('show');
+  document.getElementById('importPanel').classList.remove('show');
+  document.getElementById('exportPanel').classList.remove('show');
+  if(showing) renderMasterResults(searchMasterGames(''));
+});
+document.getElementById('btnCancelMaster').addEventListener('click', ()=>{
+  document.getElementById('masterPanel').classList.remove('show');
+});
+document.getElementById('btnMstSearch').addEventListener('click', ()=>{
+  renderMasterResults(searchMasterGames(document.getElementById('mstQuery').value));
+});
+document.getElementById('mstQuery').addEventListener('keydown', (e)=>{
+  if(e.key==='Enter') renderMasterResults(searchMasterGames(document.getElementById('mstQuery').value));
+});
+
 /* ---------- 語音提示控制項 ---------- */
 (function initSpeechUI(){
   const chk=document.getElementById('chkSpeak');
@@ -2509,28 +2776,28 @@ async function loadExternalOpenings(){
   const hint=document.getElementById('speakHint');
   const btn=document.getElementById('btnSpeakTest');
   if(!chk) return;
-  if(!SPEECH.supported){
+  if(!AppState.speech.supported){
     chk.disabled=true; if(rng) rng.disabled=true; if(btn) btn.disabled=true;
     if(hint) hint.textContent='此瀏覽器不支援語音合成';
     return;
   }
   chk.addEventListener('change', ()=>{
-    SPEECH.on = chk.checked;
-    if(SPEECH.on){
+    AppState.speech.on = chk.checked;
+    if(AppState.speech.on){
       initSpeechVoices();
       speak('語音提示已開啟');
-      if(hint && SPEECH.voice) hint.textContent='語音：'+(SPEECH.voice.name||SPEECH.voice.lang);
+      if(hint && AppState.speech.voice) hint.textContent='語音：'+(AppState.speech.voice.name||AppState.speech.voice.lang);
     }else{
       try{ window.speechSynthesis.cancel(); }catch(e){}
       if(hint) hint.textContent='';
     }
   });
   if(rng) rng.addEventListener('input', ()=>{
-    SPEECH.rate=parseFloat(rng.value);
-    if(rv) rv.textContent=SPEECH.rate.toFixed(1)+'×';
+    AppState.speech.rate=parseFloat(rng.value);
+    if(rv) rv.textContent=AppState.speech.rate.toFixed(1)+'×';
   });
   if(btn) btn.addEventListener('click', ()=>{
-    if(!SPEECH.on){ chk.checked=true; SPEECH.on=true; initSpeechVoices(); }
+    if(!AppState.speech.on){ chk.checked=true; AppState.speech.on=true; initSpeechVoices(); }
     speak('炮二平五，正是引擎首選，此著正確率 96%');
   });
   initSpeechVoices();
@@ -2540,10 +2807,10 @@ async function loadExternalOpenings(){
   const sel=document.getElementById('themeSelect');
   if(!sel) return;
   sel.innerHTML = Object.keys(PIECE_THEMES).map(k=>'<option value="'+k+'">'+PIECE_THEMES[k].name+'</option>').join('');
-  sel.value = pieceTheme;
+  sel.value = AppState.render.theme;
   sel.addEventListener('change', ()=>{
-    pieceTheme = sel.value;
-    _prevAnimIdx = -1;      // 切換主題時不播放走子動畫
+    AppState.render.theme = sel.value;
+    AppState.render.prevIdx = -1;      // 切換主題時不播放走子動畫
     renderBoard();
   });
 })();
@@ -2551,7 +2818,7 @@ async function loadExternalOpenings(){
 /* ==================== Pikafish / Fairy-Stockfish WASM 引擎 ==================== */
 /* 座標: 引擎 file a-i = col 0-8; rank 1-10, 紅底線=rank1 → row = 10 - rank        */
 /* （注意與 chessdb 的 rank 0-9 差 1，故此處與 uciToCoords 分開）                    */
-const PF = {
+AppState.engine = {
   engine:null, state:'idle',   // idle | loading | ready | failed | unsupported
   wasmBase:'https://cdn.jsdelivr.net/npm/fairy-stockfish-nnue.wasm@1.1.11/',
   listeners:[], seq:0
@@ -2564,7 +2831,7 @@ function coordsToPfMove(from,to){
   const L='abcdefghi';
   return L[from[0]]+(10-from[1])+L[to[0]]+(10-to[1]);
 }
-function pfSend(cmd){ if(PF.engine) PF.engine.postMessage(cmd); }
+function pfSend(cmd){ if(AppState.engine.engine) AppState.engine.engine.postMessage(cmd); }
 
 /* 判斷目前環境為何無法跨來源隔離，回傳原因代碼供 UI 說明 */
 function pfIsolationStatus(){
@@ -2584,38 +2851,38 @@ async function pfEnsureCrossOriginIsolated(){
 }
 
 async function pfLoad(){
-  if(PF.state==='loading' || PF.state==='ready') return PF.state==='ready';
-  PF.state='loading'; pfUpdateUI();
+  if(AppState.engine.state==='loading' || AppState.engine.state==='ready') return AppState.engine.state==='ready';
+  AppState.engine.state='loading'; pfUpdateUI();
   try{
     if(typeof SharedArrayBuffer==='undefined' || !self.crossOriginIsolated){
       const ok = await pfEnsureCrossOriginIsolated();
-      if(!ok){ PF.state='unsupported'; pfUpdateUI(); return false; }
+      if(!ok){ AppState.engine.state='unsupported'; pfUpdateUI(); return false; }
     }
     const [jsText, wasmBuf, workerText] = await Promise.all([
-      fetch(PF.wasmBase+'stockfish.js').then(r=>r.text()),
-      fetch(PF.wasmBase+'stockfish.wasm').then(r=>r.arrayBuffer()),
-      fetch(PF.wasmBase+'stockfish.worker.js').then(r=>r.text())
+      fetch(AppState.engine.wasmBase+'stockfish.js').then(r=>r.text()),
+      fetch(AppState.engine.wasmBase+'stockfish.wasm').then(r=>r.arrayBuffer()),
+      fetch(AppState.engine.wasmBase+'stockfish.worker.js').then(r=>r.text())
     ]);
     const workerBlobUrl = URL.createObjectURL(new Blob([workerText], {type:'text/javascript'}));
     const jsBlobUrl = URL.createObjectURL(new Blob([jsText], {type:'text/javascript'}));
     const mod = await import(jsBlobUrl);
     const Stockfish = mod.default;
-    PF.engine = await Stockfish({
+    AppState.engine.engine = await Stockfish({
       wasmBinary: new Uint8Array(wasmBuf),
       locateFile: (f)=> f.endsWith('.worker.js') ? workerBlobUrl : f,
       mainScriptUrlOrBlob: jsBlobUrl
     });
-    PF.engine.addMessageListener(line=>{ PF.listeners.forEach(fn=>fn(line)); });
+    AppState.engine.engine.addMessageListener(line=>{ AppState.engine.listeners.forEach(fn=>fn(line)); });
     await pfCommand('uci', l=>l==='uciok', 4000);
     pfSend('setoption name UCI_Variant value xiangqi');
     pfSend('setoption name MultiPV value 3');
     pfSend('setoption name Threads value 1');
     pfSend('isready');
-    PF.state='ready'; pfUpdateUI();
+    AppState.engine.state='ready'; pfUpdateUI();
     return true;
   }catch(e){
     console.warn('Pikafish WASM 載入失敗:', e);
-    PF.state='failed'; pfUpdateUI();
+    AppState.engine.state='failed'; pfUpdateUI();
     return false;
   }
 }
@@ -2625,20 +2892,20 @@ function pfCommand(cmd, until, timeoutMs){
     const lines=[];
     const fn=(l)=>{ lines.push(l); if(until(l)){ done(); } };
     let t=setTimeout(done, timeoutMs||5000);
-    function done(){ clearTimeout(t); PF.listeners=PF.listeners.filter(x=>x!==fn); resolve(lines); }
-    PF.listeners.push(fn);
+    function done(){ clearTimeout(t); AppState.engine.listeners=AppState.engine.listeners.filter(x=>x!==fn); resolve(lines); }
+    AppState.engine.listeners.push(fn);
     if(cmd) pfSend(cmd);
   });
 }
 
 function pfAnalyze(pieces, stm, movetimeMs){
   return new Promise((resolve)=>{
-    const mySeq = ++PF.seq;
+    const mySeq = ++AppState.engine.seq;
     const fen = fenFromPosition(pieces, stm);
     const multipv = {};
     let finished=false;
     const fn=(line)=>{
-      if(mySeq!==PF.seq) return;
+      if(mySeq!==AppState.engine.seq) return;
       if(line.startsWith('info') && line.includes(' multipv ') && line.includes(' pv ')){
         const dep=(line.match(/ depth (\d+)/)||[])[1];
         const idx=parseInt((line.match(/ multipv (\d+)/)||[])[1],10);
@@ -2653,13 +2920,13 @@ function pfAnalyze(pieces, stm, movetimeMs){
     };
     function finish(){
       if(finished) return; finished=true;
-      PF.listeners=PF.listeners.filter(x=>x!==fn);
+      AppState.engine.listeners=AppState.engine.listeners.filter(x=>x!==fn);
       const arr=Object.keys(multipv).sort((a,b)=>a-b).map(k=>multipv[k]);
       if(!arr.length){ resolve(null); return; }
       const top3=arr.slice(0,3).map(e=>{ const c=pfMoveToCoords(e.first); return {from:c.from, to:c.to, score:e.score}; });
       resolve({best:arr[0].score, top3, depth:arr[0].depth, pv:arr[0].pv});
     }
-    PF.listeners.push(fn);
+    AppState.engine.listeners.push(fn);
     pfSend('position fen '+fen);
     pfSend('go movetime '+(movetimeMs||1200));
     setTimeout(finish, (movetimeMs||1200)+2500);
@@ -2693,9 +2960,9 @@ function pfUpdateUI(){
     failed:['🐟 重試載入 Pikafish','載入失敗，請檢查網路後重試'],
     unsupported:['🐟 Pikafish（此環境無法啟用）','']
   };
-  const [t,h]=map[PF.state]||map.idle;
+  const [t,h]=map[AppState.engine.state]||map.idle;
   btn.textContent=t;
-  if(PF.state==='unsupported'){
+  if(AppState.engine.state==='unsupported'){
     const why = pfIsolationStatus();
     const msg = {
       file:'目前是以 file:// 本機開啟，瀏覽器不允許 Service Worker，無法取得多執行緒所需的跨來源隔離。請改放到 https 靜態託管（GitHub Pages、Netlify、Cloudflare Pages 等）。',
@@ -2707,16 +2974,16 @@ function pfUpdateUI(){
     hint.textContent = msg;
     return;
   }
-  btn.disabled = PF.state==='loading' || PF.state==='ready';
-  btn.style.opacity = (PF.state==='ready') ? '.7' : '1';
+  btn.disabled = AppState.engine.state==='loading' || AppState.engine.state==='ready';
+  btn.style.opacity = (AppState.engine.state==='ready') ? '.7' : '1';
   hint.textContent=h;
 }
 
 /* ---------- 匯出棋譜 ---------- */
 function exportAs(fmt){
-  const movesArr = recording ? recordedMoves : currentMoves;
+  const movesArr = AppState.rec.on ? AppState.rec.moves : AppState.nav.moves;
   if(fmt==='fen'){
-    const upto = recording ? recordedMoves.length : currentIndex;
+    const upto = AppState.rec.on ? AppState.rec.moves.length : AppState.nav.index;
     const pieces = computeBoardAt(upto, movesArr);
     return fenFromPosition(pieces, upto%2===0?'w':'b');
   }
@@ -2779,7 +3046,7 @@ function exportAs(fmt){
   }
   if(fmt==='json'){
     return JSON.stringify({
-      name: recording ? '記譜局' : '棋譜',
+      name: AppState.rec.on ? '記譜局' : '棋譜',
       exported: new Date().toISOString().slice(0,10),
       tokens: movesArr.map(m=>m.notation)
     }, null, 2);
@@ -2811,14 +3078,14 @@ document.getElementById('btnCopyExport').addEventListener('click', async ()=>{
 
 /* ---------- 啟用內嵌 Pikafish WASM 引擎 ---------- */
 document.getElementById('btnPikaEngine').addEventListener('click', async ()=>{
-  if(PF.state==='ready') return;
+  if(AppState.engine.state==='ready') return;
   const ok = await pfLoad();
   if(ok){
     /* 載入成功 → 立即用引擎重新分析當前局面 */
-    if((recording && recordedMoves.length>0) || (!recording && currentMoves.length>0) || recording){
+    if((AppState.rec.on && AppState.rec.moves.length>0) || (!AppState.rec.on && AppState.nav.moves.length>0) || AppState.rec.on){
       analyzePosition();
     }
-  } else if(PF.state==='unsupported' && pfIsolationStatus()==='reload'){
+  } else if(AppState.engine.state==='unsupported' && pfIsolationStatus()==='reload'){
     document.getElementById('pikaEngineHint').innerHTML='跨來源隔離元件已就緒，請<b>重新整理頁面</b>一次即可啟用 Pikafish 引擎。';
   }
 });
@@ -2826,7 +3093,7 @@ document.getElementById('btnPikaEngine').addEventListener('click', async ()=>{
 /* ---------- 皮卡魚網頁版（xiangqiai.com）深度分析 ---------- */
 /* 該站引擎為瀏覽器端 WASM 執行、無對外 API，故採「複製 FEN → 開站貼上」流程 */
 document.getElementById('btnPikaWeb').addEventListener('click', async ()=>{
-  const movesArr = recording ? recordedMoves : currentMoves.slice(0, currentIndex);
+  const movesArr = AppState.rec.on ? AppState.rec.moves : AppState.nav.moves.slice(0, AppState.nav.index);
   const pieces = computeBoardAt(movesArr.length, movesArr);
   const stm = movesArr.length%2===0 ? 'w' : 'b';
   const fen = fenFromPosition(pieces, stm);
@@ -2869,22 +3136,22 @@ document.getElementById('btnSaveRec').addEventListener('click', ()=>{
   const box = document.getElementById('searchResults');
   box.innerHTML='';
   box.classList.add('show');
-  if(!recording){
+  if(!AppState.rec.on){
     box.innerHTML='<div class="sr-empty">請先用「先手記譜」或「後手記譜」記錄棋局，再按儲存。</div>';
     return;
   }
-  if(recordedMoves.length<2){
+  if(AppState.rec.moves.length<2){
     box.innerHTML='<div class="sr-empty">目前記譜不足2步，請先走幾步再儲存。</div>';
     return;
   }
-  const preferSide = flipBoard ? '後手' : '先手';
-  const tokens = recordedMoves.map(m=>m.notation);
+  const preferSide = AppState.rec.flip ? '後手' : '先手';
+  const tokens = AppState.rec.moves.map(m=>m.notation);
   const cls = classifyForSave(tokens, preferSide);
   const side = cls ? cls.side : preferSide;
   const cat  = cls ? cls.cat  : '匯入棋譜（未分類）';
   const why  = cls ? cls.why  : '無法自動判斷開局類型，已放入未分類';
   const rounds = Math.ceil(tokens.length/2);
-  const name = (flipBoard?'後手記譜':'先手記譜')+'（'+rounds+'回合）#'+(importedGames.length+1);
+  const name = (AppState.rec.flip?'後手記譜':'先手記譜')+'（'+rounds+'回合）#'+(AppState.library.imported.length+1);
 
   const r = addImportedGame(side, cat, name, tokens);
   if(!r.ok){
@@ -2894,7 +3161,7 @@ document.getElementById('btnSaveRec').addEventListener('click', ()=>{
   box.innerHTML='<div class="sr-empty" style="color:#8FD98F;">✔ 已儲存「'+name+'」至 <b style="color:#C9A227;">'+side+'｜'+cat+'</b>（依據：'+why+'）</div>';
   refreshImportCategoryOptions();
   // 清空記譜、結束記譜模式並跳到剛儲存的棋譜
-  recordedMoves = [];
+  AppState.rec.moves = [];
   stopRecording();
   box.classList.add('show');   // stopRecording會關閉結果框，重新打開顯示確認訊息
   box.innerHTML='<div class="sr-empty" style="color:#8FD98F;">✔ 已儲存「'+name+'」至 <b style="color:#C9A227;">'+side+'｜'+cat+'</b>（依據：'+why+'）</div>';
@@ -2904,8 +3171,8 @@ document.getElementById('btnSaveRec').addEventListener('click', ()=>{
   selectCategory(cat, entry.lines.length-1);
 });
 
-/* 啟動時嘗試載入外部 JSON 棋庫（部署後放 openings/ 資料夾即可，無則略過） */
-loadExternalOpenings();
+/* 啟動：載入 openings/*.json 棋譜庫，完成後才建立選單 */
+loadOpeningLibrary();
 
 </script>
 </body>
