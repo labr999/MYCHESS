@@ -1159,12 +1159,14 @@ function updateOpeningReco(tokens){
     const notas = tokens.map(normalizeNotation);
     const exact = matchKnownLines(notas);
     const hits = classifyOpening(notas).filter(h=>!h.cat.includes('總清單'));
-    const deepTh = Math.min(10, notas.length);
-    if(exact.length>0 && exact[0].score>=deepTh){
+    const topSc = exact.length ? exact[0].score : 0;
+    const topCt = new Set(exact.filter(r=>r.score===topSc).map(r=>r.side+'|'+r.cat));
+    const highConf = topSc>=10 || (topSc>=notas.length && notas.length>=4 && topCt.size===1);
+    if(exact.length>0 && highConf){
       const pct = Math.min(98, 60 + exact[0].score*4);
       el.innerHTML = '🎯 開局辨識：<b>'+exact[0].side+'｜'+exact[0].cat+'</b>（前 '+exact[0].score+' 步完全吻合，'+pct+'%）';
       el.style.display='block';
-    } else if(exact.length>0 && exact[0].score>=3){
+    } else if(exact.length>0 && exact[0].score>=3 && topCt.size===1){
       const pct = Math.min(85, 45 + exact[0].score*5);
       el.innerHTML = '🎯 開局辨識：<b>'+exact[0].side+'｜'+exact[0].cat+'</b>（吻合 '+exact[0].score+' 步，'+pct+'%）';
       el.style.display='block';
@@ -2111,10 +2113,11 @@ document.getElementById('btnDoImport').addEventListener('click', ()=>{
   const meta = (fmt==='dhtmlxq') ? parseDhtmlXqMeta(raw) : null;
   if(meta){
     const evCat = categorizeEvent(meta.event);
+    const mSide = meta.result==='黑勝' ? '後手' : '先手';
     const r = addMasterGame({
       red: meta.red, black: meta.black, event: meta.event,
       date: meta.date, result: meta.result,
-      side: '先手', category: evCat, tokens
+      side: mSide, category: evCat, tokens
     });
     if(!r.ok){ msg.textContent='棋譜有誤：'+r.err; msg.classList.add('err'); return; }
     populateCategories();
@@ -2124,7 +2127,7 @@ document.getElementById('btnDoImport').addEventListener('click', ()=>{
       (meta.result?('（'+meta.result+'）'):'')+'<br>'+
       '賽事：'+(meta.event||'未註明')+(meta.round?('・'+meta.round):'')+
       (meta.date?('・'+meta.date):'')+'　共 '+tokens.length+' 步<br>'+
-      '已歸類至 <b>先手｜'+evCat+'</b>，可用「🏆 大師棋庫」搜尋棋手或賽事。';
+      '已歸類至 <b>'+mSide+'｜'+evCat+'</b>（依勝方歸屬），可用「🏆 大師棋庫」搜尋棋手或賽事。';
     document.getElementById('impText').value='';
     return;
   }
@@ -2749,11 +2752,12 @@ async function loadOpeningLibrary(){
 
 function addMasterGame(g, refresh){
   if(!g || !Array.isArray(g.tokens) || g.tokens.length<2) return {ok:false, err:'缺少著法'};
-  const side = g.side || '先手';
+  /* 勝方定歸屬：黑勝存入後手、其餘存入先手（供對應視角研究）；來源明示 side 時尊重之 */
+  const side = g.side || (g.result==='黑勝' ? '後手' : '先手');
   const cat  = g.category || '大師對局';
   /* 開局分類：以前 10 步自動判定 */
   let openCat = '';
-  try{ const c = classifyForSave(g.tokens, '先手'); if(c) openCat = c.cat; }catch(e){}
+  try{ const c = classifyForSave(g.tokens, side); if(c) openCat = c.cat; }catch(e){}
   /* 誰先勝：紅勝＝先勝、黑勝＝先負、和局＝先和（以紅方視角標記） */
   const vs = g.result==='紅勝' ? ' 先勝 '
            : g.result==='黑勝' ? ' 先負 '
@@ -3261,9 +3265,13 @@ function classifyForSave(tokens, preferSide){
   const exact = matchKnownLines(notas);
   const heur = classifyOpening(notas).filter(h=>!h.cat.includes('總清單'));
   // 候選池：深度精確吻合 > 開局特徵 > 淺層吻合
-  // 深度門檻＝前 10 步（棋譜不足 10 步時以全長吻合為準），提高比對精確度
-  const deepTh = Math.min(10, notas.length);
-  const deep = exact.filter(r=>r.score>=deepTh);
+  // 深度吻合＝吻合達 10 步。棋譜不足 10 步時，前幾步是許多開局的共同起手，
+  // 只有「全長吻合且僅一個分類達到最高分」才視為明確；有歧義時交給開局特徵判斷。
+  const topScore = exact.length ? exact[0].score : 0;
+  const topCats = new Set(exact.filter(r=>r.score===topScore).map(r=>r.side+'|'+r.cat));
+  let deep = [];
+  if(topScore >= 10) deep = exact.filter(r=>r.score>=10);
+  else if(topScore >= notas.length && notas.length >= 4 && topCats.size === 1) deep = [exact[0]];
   const pool = [...deep, ...heur, ...exact];
   const seen = new Set();
   const uniq = pool.filter(r=>{ const k=r.side+'|'+r.cat; if(seen.has(k))return false; seen.add(k); return true; });
