@@ -416,6 +416,7 @@
   <button id="btnPlay" title="自動播放">&#9654;</button>
   <button id="btnNext" title="下一步">&raquo;</button>
   <button id="btnLast" title="跳到最後">&raquo;|</button>
+  <button id="btnFlipView" title="轉換棋盤視角（紅下／黑下）">🔄</button>
   <span class="step-label" id="stepLabel">0 / 0</span>
 </div>
 <div id="checkBanner" style="display:none;text-align:center;margin:6px auto 0;max-width:560px;padding:7px 12px;border-radius:8px;font-weight:800;font-size:.88rem;letter-spacing:.12em;"></div>
@@ -1688,6 +1689,12 @@ document.getElementById('btnUndo').addEventListener('click', ()=>{
   analyzePosition();
 });
 
+document.getElementById('btnFlipView').addEventListener('click', ()=>{
+  AppState.rec.flip = !AppState.rec.flip;
+  AppState.render.prevIdx = -1;   // 翻轉視角時不播放走子動畫
+  renderBoard();
+});
+
 document.getElementById('btnClearRec').addEventListener('click', ()=>{
   if(AppState.rec.on){
     /* 記譜模式：清空已記著法，回到原始盤面繼續記譜 */
@@ -1733,14 +1740,26 @@ function classifyOpening(notas){
       add('先手','中砲對三步虎','黑方平邊砲亮車（三步虎）');
       add('後手','後手中炮對三步虎','黑方三步虎（後手視角）');
     }
-    if(/^砲8平5/.test(blk[0]||'')) add('先手','中砲對順手砲','黑第1著 砲8平5（順手砲）');
-    if(/^砲2平5/.test(blk[0]||'')) add('先手','中炮對列手砲','黑第1著 砲2平5（列手砲）');
+    if(/^砲8平5/.test(blk[0]||'')){
+      add('先手','中砲對順手砲','黑第1著 砲8平5（順手砲）');
+      if(!hits.some(h=>h.cat==='後手順手砲')) hits.push({side:'後手',cat:'後手順手砲',why:'黑方還中炮（順手砲，後手視角）'});
+    }
+    if(/^砲2平5/.test(blk[0]||'')){
+      add('先手','中炮對列手砲','黑第1著 砲2平5（列手砲）');
+      if(!hits.some(h=>h.cat==='後手列手砲')) hits.push({side:'後手',cat:'後手列手砲',why:'黑方列手砲（後手視角）'});
+    }
     if(blkEarly.some(n=>/^砲[28]平[46]/.test(n))){
       add('先手','中砲對反宮馬','黑方士角砲（反宮馬）');
       add('後手','後手反宮馬','黑方反宮馬（後手視角）');
     }
-    if(blkEarly.slice(0,3).some(n=>/^象[37]進5/.test(n))) add('先手','中砲對飛象局','黑方飛象固防');
-    if(blkEarly.slice(0,2).some(n=>/^馬[28]進[19]/.test(n))) add('先手','中砲對單提馬','黑方邊馬（單提馬）');
+    if(blkEarly.slice(0,3).some(n=>/^象[37]進5/.test(n))){
+      add('先手','中砲對飛象局','黑方飛象固防');
+      if(!hits.some(h=>h.cat==='後手飛象應中砲')) hits.push({side:'後手',cat:'後手飛象應中砲',why:'黑方飛象固防（後手視角）'});
+    }
+    if(blkEarly.slice(0,2).some(n=>/^馬[28]進[19]/.test(n))){
+      add('先手','中砲對單提馬','黑方邊馬（單提馬）');
+      if(!hits.some(h=>h.cat==='後手單提馬')) hits.push({side:'後手',cat:'後手單提馬',why:'黑方單提馬（後手視角）'});
+    }
     if(/^卒[37]進1/.test(blk[0]||'')) add('先手','中砲對仙人指路','黑第1著 挺卒');
     if(blkEarly.some(n=>/^砲[28]進2/.test(n))){
       add('先手','中砲對巡河砲','黑砲進二（巡河砲）');
