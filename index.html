@@ -798,14 +798,15 @@ function populateCategories(){
     categorySelect.appendChild(o);
   };
   /* 將某分類中符合條件的行加入選單（value 沿用原始行索引，播放邏輯不變） */
-  const addSection = (cat, pick, mk)=>{
+  const addSection = (cat, pick, mk, showName)=>{
     const entry = DATA[side][cat];
     const rows = entry.lines.map((l,i)=>({l,i})).filter(x=>pick(x.l));
     if(!rows.length) return false;
     if(rows.length===1){
       const opt=document.createElement('option');
       opt.value=cat+'||'+rows[0].i;
-      opt.textContent=(mk||'')+cat+' '+lineTag(rows[0].l);
+      /* 大師棋庫等需要顯示對局細節時，單筆也顯示行名（含開局分類與勝負） */
+      opt.textContent=(mk||'')+cat+(showName?('　'+rows[0].l.name):(' '+lineTag(rows[0].l)));
       categorySelect.appendChild(opt);
     } else {
       const grp=document.createElement('optgroup');
@@ -838,7 +839,7 @@ function populateCategories(){
   }
   if(masters.length){
     addHeader('────── 🏆 大師棋庫 ──────');
-    masters.forEach(c=>addSection(c, ()=>true, '🏆 '));
+    masters.forEach(c=>addSection(c, ()=>true, '🏆 ', true));
   }
   /* 跳過開頭的分隔行，預設選到第一個可用項 */
   const first = Array.from(categorySelect.querySelectorAll('option')).find(o=>!o.disabled);
@@ -1686,13 +1687,21 @@ document.getElementById('btnUndo').addEventListener('click', ()=>{
 });
 
 document.getElementById('btnClearRec').addEventListener('click', ()=>{
-  if(!AppState.rec.on) return;
-  AppState.rec.moves=[];
-  AppState.rec.selected=null;
-  document.getElementById('searchResults').classList.remove('show');
-  renderRecordedList();
-  renderBoard();
-  analyzePosition();
+  if(AppState.rec.on){
+    /* 記譜模式：清空已記著法，回到原始盤面繼續記譜 */
+    AppState.rec.moves=[];
+    AppState.rec.selected=null;
+    document.getElementById('searchResults').classList.remove('show');
+    renderRecordedList();
+    renderBoard();
+    analyzePosition();
+  } else {
+    /* 播放模式：一鍵回到棋譜起始（原始盤面） */
+    if(AppState.nav.playTimer){ clearInterval(AppState.nav.playTimer); AppState.nav.playTimer=null; document.getElementById('btnPlay').innerHTML='&#9654;'; }
+    AppState.nav.index=0;
+    renderMovesList();
+    renderBoard();
+  }
 });
 
 /* ---------- 開局比對搜尋 ---------- */
@@ -2742,11 +2751,17 @@ function addMasterGame(g, refresh){
   if(!g || !Array.isArray(g.tokens) || g.tokens.length<2) return {ok:false, err:'缺少著法'};
   const side = g.side || '先手';
   const cat  = g.category || '大師對局';
-  const label = (g.red||'紅方')+' 先勝負 '+(g.black||'黑方');
-  const name = (g.red||'?')+' vs '+(g.black||'?')
-             + (g.event?('・'+g.event):'')
-             + (g.date?('・'+String(g.date).slice(0,10)):'')
-             + (g.result?('・'+g.result):'');
+  /* 開局分類：以前 10 步自動判定 */
+  let openCat = '';
+  try{ const c = classifyForSave(g.tokens, '先手'); if(c) openCat = c.cat; }catch(e){}
+  /* 誰先勝：紅勝＝先勝、黑勝＝先負、和局＝先和（以紅方視角標記） */
+  const vs = g.result==='紅勝' ? ' 先勝 '
+           : g.result==='黑勝' ? ' 先負 '
+           : (g.result==='和局'||/和/.test(g.result||'')) ? ' 先和 '
+           : ' vs ';
+  const name = (g.red||'?') + vs + (g.black||'?')
+             + (openCat?('・'+openCat):'')
+             + (g.date?('・'+String(g.date).slice(0,10)):'');
   const r = addImportedGame(side, cat, name, g.tokens, false);
   if(!r.ok) return r;
   const entry = DATA[side][cat];
@@ -2763,7 +2778,7 @@ function addMasterGame(g, refresh){
   entry.intro = '🏆 大師對局・'+cat+'　收錄 '+(entry.lines.length)+' 局';
   AppState.library.masters.push({
     red:g.red||'', black:g.black||'', event:g.event||'', date:String(g.date||''),
-    result:g.result||'', side, cat, name, lineIdx: entry.lines.length-1,
+    result:g.result||'', side, cat, name, open:openCat, lineIdx: entry.lines.length-1,
     plies: g.tokens.length
   });
   AppState.library.masterCats[side+'|'+cat] = true;   // 標記為大師棋庫分類
@@ -2798,7 +2813,7 @@ function searchMasterGames(q){
   if(!s) return AppState.library.masters.slice(0, 60);
   const terms = s.split(/\s+/).filter(Boolean);
   return AppState.library.masters.filter(g=>{
-    const hay = normCJK(g.red+' '+g.black+' '+g.event+' '+g.date+' '+g.result+' '+g.cat);
+    const hay = normCJK(g.red+' '+g.black+' '+g.event+' '+g.date+' '+g.result+' '+g.cat+' '+(g.open||''));
     return terms.every(t=>hay.includes(t));
   }).slice(0, 60);
 }
@@ -2861,7 +2876,7 @@ function renderMasterResults(list){
     div.innerHTML='<b style="color:#F0D48A;">'+(g.red||'?')+'</b> <span style="opacity:.6;">先對</span> '+
       '<b style="color:#CDE6F5;">'+(g.black||'?')+'</b>'+
       (g.result?' <span style="color:#A8E0C0;">'+g.result+'</span>':'')+
-      '<br><span style="opacity:.75;">'+[g.event,g.date,g.cat,g.plies+'步'].filter(Boolean).join('　')+'</span>';
+      '<br><span style="opacity:.75;">'+[g.open,g.event,g.date,g.cat,g.plies+'步'].filter(Boolean).join('　')+'</span>';
     div.addEventListener('click', ()=>{
       sideSelect.value=g.side;
       populateCategories();
