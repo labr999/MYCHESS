@@ -759,7 +759,7 @@ const AppState = {
   rec:      { on:false, moves:[], selected:null, flip:false },
   render:   { theme:'classic', prevIdx:-1, prevMode:'', lastCheckSpoken:'' },
   analysis: { seq:0, lastRoot:null, curveCache:{key:'', vals:[]}, coachStats:{r:[], b:[]} },
-  library:  { imported:[], masters:[] },
+  library:  { imported:[], masters:[], masterCats:{} },
   engine:   null,
   speech:   null
 };
@@ -786,18 +786,23 @@ function lineTag(line){
 function populateCategories(){
   categorySelect.innerHTML='';
   const side = sideSelect.value;
-  Object.keys(DATA[side]).forEach(cat=>{
+  /* 開局分類在前，大師棋庫分類集中排在最後並以 🏆 標示 */
+  const all = Object.keys(DATA[side]);
+  const isMaster = c => !!AppState.library.masterCats[side+'|'+c];
+  const ordered = all.filter(c=>!isMaster(c)).concat(all.filter(isMaster));
+  ordered.forEach(cat=>{
     const entry = DATA[side][cat];
+    const mk = isMaster(cat) ? '🏆 ' : '';
     if(entry.lines.length===1){
       // 單一內容：直接以分類名稱作為選項
       const opt=document.createElement('option');
       opt.value=cat+'||0';
-      opt.textContent=cat+' '+lineTag(entry.lines[0]);
+      opt.textContent=mk+cat+' '+lineTag(entry.lines[0]);
       categorySelect.appendChild(opt);
     } else {
       // 多項內容：用群組標題+縮排子選項
       const grp=document.createElement('optgroup');
-      grp.label=cat+' '+contentTag(entry);
+      grp.label=mk+cat+' '+contentTag(entry);
       entry.lines.forEach((line,i)=>{
         const opt=document.createElement('option');
         opt.value=cat+'||'+i;
@@ -1309,7 +1314,7 @@ svg.addEventListener('click', e=>{
   const notation = genNotation(pieces, mover, AppState.rec.selected, pos);
   /* AI 教練：與剛才分析的最佳著法比較 */
   coachFeedback(AppState.rec.selected, pos, notation, pieces, sideToMove);
-  AppState.rec.moves.push({from:[...selectedPos], to:[...pos], notation});
+  AppState.rec.moves.push({from:[...AppState.rec.selected], to:[...pos], notation});
   AppState.rec.selected=null;
   renderRecordedList();
   renderBoard();
@@ -1600,7 +1605,7 @@ function startRecording(flip){
   const active = flip ? btnRecBlack : btnRecRed;
   const other  = flip ? btnRecRed : btnRecBlack;
   active.textContent='✎ 結束記譜';
-  active.classList.add('AppState.rec.on');
+  active.classList.add('recording');
   other.disabled=true;
   other.style.opacity='.45';
   renderRecordedList();
@@ -1615,8 +1620,8 @@ function stopRecording(){
   AppState.rec.selected=null;
   btnRecRed.textContent='✎ 先手記譜';
   btnRecBlack.textContent='✎ 後手記譜';
-  btnRecRed.classList.remove('AppState.rec.on');
-  btnRecBlack.classList.remove('AppState.rec.on');
+  btnRecRed.classList.remove('recording');
+  btnRecBlack.classList.remove('recording');
   btnRecRed.disabled=false; btnRecBlack.disabled=false;
   btnRecRed.style.opacity=''; btnRecBlack.style.opacity='';
   document.getElementById('searchResults').classList.remove('show');
@@ -2627,7 +2632,7 @@ async function loadOpeningLibrary(){
         }
       } else if(d && Array.isArray(d.masters)){                // 大師對局檔
         for(const g of d.masters){
-          const r = addMasterGame(g);
+          const r = addMasterGame(g, false);
           if(r.ok) nLine++; else problems.push(res.file+' → '+(r.err||'格式不符'));
         }
       } else {                                                 // 對局集
@@ -2660,7 +2665,7 @@ async function loadOpeningLibrary(){
                    "tokens":["炮二平五","馬8進7", ...] } ] }
    本程式不內附大師對局資料——請自行從合法來源取得後放入。            */
 
-function addMasterGame(g){
+function addMasterGame(g, refresh){
   if(!g || !Array.isArray(g.tokens) || g.tokens.length<2) return {ok:false, err:'缺少著法'};
   const side = g.side || '先手';
   const cat  = g.category || '大師對局';
@@ -2672,20 +2677,52 @@ function addMasterGame(g){
   const r = addImportedGame(side, cat, name, g.tokens, false);
   if(!r.ok) return r;
   const entry = DATA[side][cat];
+  /* 以實際對局資訊取代匯入功能的罐頭說明 */
+  const line = entry.lines[entry.lines.length-1];
+  if(line){
+    line.desc = '紅方 '+(g.red||'？')+'　黑方 '+(g.black||'？')
+      + (g.result?('　結果 '+g.result):'')
+      + (g.event?('<br>賽事：'+g.event):'')
+      + (g.round?('・'+g.round):'')
+      + (g.date?('　'+String(g.date).slice(0,10)):'')
+      + '<br>共 '+g.tokens.length+' 步（'+Math.ceil(g.tokens.length/2)+' 回合）';
+  }
+  entry.intro = '🏆 大師對局・'+cat+'　收錄 '+(entry.lines.length)+' 局';
   AppState.library.masters.push({
     red:g.red||'', black:g.black||'', event:g.event||'', date:String(g.date||''),
     result:g.result||'', side, cat, name, lineIdx: entry.lines.length-1,
     plies: g.tokens.length
   });
+  AppState.library.masterCats[side+'|'+cat] = true;   // 標記為大師棋庫分類
+  if(refresh!==false){                                // 批次載入時可延後統一更新
+    populateCategories();
+    if(typeof refreshImportCategoryOptions==='function') refreshImportCategoryOptions();
+  }
   return {ok:true};
 }
 
+/* ---------- 繁簡通用比對 ----------
+   東萍等大陸棋譜站以簡體記錄棋手／賽事／隊名，台港澳使用者慣以繁體搜尋。
+   比對前一律正規化為簡體（繁→簡為多對一，結果穩定），兩種寫法都查得到。
+   下表為「繁簡」交替排列的緊湊字串，載入時展開為對照表。              */
+const T2S_PAIRS = '丟丢並并乾干亂乱亙亘亞亚佇伫佘畲來来侖仑侶侣俁俣係系俠侠倀伥倆俩倉仓個个們们倫伦偉伟側侧偵侦偽伪傑杰傖伧傘伞備备傢家傭佣傯偬傳传傴伛債债傷伤傾倾僂偻僅仅僉佥僑侨僕仆僞伪僥侥僨偾價价儀仪儂侬億亿儈侩儉俭儐傧儔俦儕侪儘尽償偿優优儲储儷俪儺傩儻傥儼俨兌兑兒儿兗兖內内兩两冇没冊册冪幂凍冻凜凛凱凯別别刪删剄刭則则剋克剗刬剛刚剝剥剮剐剴剀創创劃划劄札劇剧劈噼劉刘劊刽劌刿劍剑劑剂勁劲動动務务勛勋勝胜勞劳勢势勩勚勱劢勳勋勵励勸劝勻匀匭匦匯汇匱匮區区協协卻却厙厍厭厌厲厉厴厣參参叢丛吒咤吳吴呂吕呱哌呼唿咼呙員员哢咔唄呗唕唣唚吣問问啓启啞哑啟启啢唡喎㖞喚唤喪丧喬乔單单喲哟嗆呛嗇啬嗊唝嗎吗嗚呜嗩唢嗬呵嗶哔嘆叹嘍喽嘔呕嘖啧嘗尝嘜唛嘩哗嘮唠嘯啸嘰叽嘵哓嘸呒嘽啴噁恶噅咴噓嘘噝咝噠哒噥哝噦哕噯嗳噲哙噴喷噸吨噹当嚀咛嚇吓嚌哜嚐尝嚕噜嚙啮嚦呖嚨咙嚮向嚲亸嚳喾嚴严嚶嘤囀啭囁嗫囂嚣囅冁囈呓囉啰囌苏囑嘱囪囱圇囵國国圍围園园圓圆圖图團团坰垧垵埯埡垭執执堅坚堊垩堖垴堝埚堯尧報报場场堿碱塊块塋茔塏垲塒埘塗涂塚冢塢坞塤埙塵尘塹堑墊垫墜坠墮堕墳坟墶垯墾垦壇坛壋垱壓压壘垒壙圹壚垆壞坏壟垄壢坜壩坝壪塆壯壮壺壶壼壸壽寿夠够夢梦夥伙夾夹奐奂奧奥奩奁奪夺奬奖奮奋妝妆姍姗娛娱婁娄婦妇婭娅媧娲媯妫媼媪媽妈嫋袅嫗妪嫵妩嫻娴嫿婳嬈娆嬋婵嬌娇嬙嫱嬡嫒嬤嬷嬪嫔嬰婴嬸婶孌娈孫孙學学孿孪宮宫寜宁寢寝實实寧宁審审寫写寬宽寵宠寶宝將将專专尋寻對对導导尷尴屆届屍尸屙疴屜屉屢屡層层屨屦屬属屭屃岡冈峴岘島岛峽崃崍崃崗岗崠岽崢峥崬岽崳嵛嵐岚嶁嵝嶄崭嶇岖嶔嵚嶗崂嶠峤嶢峣嶧峄嶨峃嶮崄嶴岙嶸嵘嶺岭嶼屿嶽岳巋岿巒峦巔巅巰巯巹卺帥帅師师帳帐帶带幀帧幃帏幗帼幘帻幟帜幣币幫帮幬帱幹干幾几庫库廁厕廂厢廄厩廈厦廎庼廚厨廝厮廟庙廠厂廡庑廢废廣广廩廪廬庐廳厅弳弪張张強强彆别彈弹彌弥彎弯彙汇彠彟彥彦後后徑径從从徠徕復复徵征徹彻怵憷恥耻悅悦悵怅悶闷惡恶惱恼惲恽惻恻愛爱愜惬愨悫愴怆愷恺愾忾態态慍愠慘惨慚惭慟恸慣惯慤悫慪怄慫怂慮虑慳悭慶庆憂忧憊惫憐怜憑凭憒愦憖慭憚惮憤愤憫悯憮怃憲宪憶忆懇恳應应懌怿懍懔懞蒙懟怼懣懑懨恹懲惩懶懒懷怀懸悬懺忏懼惧懾慑戀恋戇戆戔戋戧戗戩戬戰战戲戏戶户扡扦拋抛挾挟捨舍捫扪捲卷掃扫掄抡掆㧏掗挜掙挣掛挂揀拣揚扬換换揮挥損损搖摇搗捣搶抢摑掴摜掼摟搂摣揸摯挚摳抠摶抟摺折摻掺撈捞撏挦撐撑撓挠撚捻撟挢撣掸撥拨撫抚撲扑撳揿撻挞撾挝撿捡擁拥擄掳擇择擊击擋挡擓㧟擔担據据擠挤擬拟擯摈擰拧擱搁擲掷擴扩擷撷擺摆擻擞擼撸擾扰攄摅攆撵攏拢攔拦攖撄攙搀攛撺攜携攝摄攢攒攣挛攤摊攪搅攬揽敗败敘叙敵敌數数斂敛斃毙斕斓斬斩斷断於于時时晉晋晝昼暈晕暉晖暘旸暢畅暫暂曄晔曆历曇昙曉晓曖暧曠旷曨昽曬晒書书會会朧胧東东柵栅梔栀梘枧條条梟枭棄弃棖枨棗枣棟栋棡㭎棧栈棬桊棲栖棶梾椏桠楊杨楓枫楨桢業业極极榖谷榪杩榮荣榿桤槁藁構构槍枪槧椠槨椁槳桨樁桩樂乐樅枞樓楼標标樞枢樣样樸朴樹树樺桦橈桡橋桥機机橢椭橫横檁檩檉柽檔档檜桧檟槚檢检檣樯檮梼檯台檳槟檸柠檻槛檾苘櫃柜櫓橹櫚榈櫛栉櫝椟櫞橼櫟栎櫥橱櫧槠櫨栌櫪枥櫫橥櫬榇櫳栊櫸榉櫻樱欄栏權权欏椤欒栾欖榄欞棂欽钦歎叹歐欧歟欤歡欢歲岁歷历歸归歿殁殘残殞殒殤殇殨㱮殫殚殮殓殯殡殲歼殺杀殼壳毀毁毆殴毿毵氈毡氌氇氣气氫氢氬氩氳氲氹凼汙污決决沒没況况洶汹浹浃涇泾涼凉淒凄淚泪淥渌淨净淩凌淪沦淵渊淶涞淺浅渙涣減减渢沨渦涡測测渾浑湊凑湞浈湣愍湧涌湯汤溈沩準准溜熘溝沟溫温溮浉溳涢滄沧滅灭滌涤滎荥滬沪滯滞滲渗滷卤滸浒滻浐滾滚滿满漁渔漊溇漚沤漢汉漣涟漬渍漲涨漵溆漸渐漿浆潁颍潑泼潔洁潛潜潤润潯浔潰溃潷滗潿涠澀涩澆浇澇涝澗涧澠渑澤泽澦滪澩泶澮浍澱淀澾㳠濁浊濃浓濔沵濕湿濘泞濛蒙濜浕濟济濤涛濫滥濰潍濱滨濺溅濼泺濾泸瀅滢瀆渎瀉泻瀋沈瀏浏瀕濒瀘泸瀝沥瀟潇瀠潆瀦潴瀧泷瀨濑瀰弥瀲潋瀾澜灃沣灄滠灑洒灕漓灘滩灝灏灣湾灤滦灧滟灩滟災灾為为烏乌烴烃無无煆煅煉炼煒炜煙烟煢茕煥焕煩烦煬炀熒荧熗炝熱热熲颎熾炽燁烨燈灯燉炖燒烧燙烫燜焖營营燦灿燭烛燴烩燼烬燾焘爍烁爐炉爛烂爭争爺爷爾尔爿丬牆墙牘牍牽牵犖荦犛牦犢犊犧牺狀状狹狭狽狈猙狰猛勐猶犹猻狲獁犸獄狱獅狮獎奖獨独獪狯獫猃獮狝獰狞獲获獵猎獷犷獸兽獺獭獻献獼猕玀猡玨珏現现琺珐琿珲瑉珉瑋玮瑒玚瑣琐瑤瑶瑩莹瑪玛瑲玱璉琏璡琎璣玑璦瑷璫珰環环璵玙璽玺璿璇瓊琼瓏珑瓔璎瓚瓒甌瓯甕瓮產产産产畝亩畢毕畫画異异當当疇畴疊叠痙痉瘂痖瘋疯瘍疡瘓痪瘞瘗瘡疮瘧疟瘮瘆瘺瘘瘻瘘療疗癆痨癇痫癉瘅癘疠癟瘪癡痴癢痒癤疖癥症癧疬癩癞癬癣癭瘿癮瘾癰痈癱瘫癲癫發发皚皑皰疱皸皲皺皱盃杯盜盗盞盏盡尽監监盤盘盧卢眥眦眾众睏困睜睁睞睐瞘眍瞜䁖瞞瞒瞭了瞼睑矇蒙矓眬矚瞩矯矫矽硅硃朱硜硁硤硖硨砗硯砚碩硕碭砀碸砜確确碼码磑硙磚砖磣碜磧碛磯矶磽硗礄硚礎础礙碍礦矿礪砺礫砾礬矾礱砻祿禄禍祸禎祯禕祎禦御禪禅禮礼禰祢禱祷禿秃秈籼稅税稈秆稟禀種种稱称穀谷穇䅟穌稣積积穎颖穠秾穡穑穢秽穩稳穫获穭稆窩窝窪洼窮穷窯窑窵窎窶窭窺窥竄窜竅窍竇窦竈灶竊窃竪竖競竞筆笔筍笋筧笕箋笺箏筝節节範范築筑篋箧篤笃篩筛篳筚簀箦簍篓簞箪簡简簣篑簫箫簷檐簹筜簽签簾帘籃篮籌筹籙箓籜箨籟籁籠笼籤签籩笾籪簖籬篱籮箩籲吁粵粤糊煳糝糁糞粪糧粮糰团糲粝糴籴糶粜糸纟糾纠紀纪紂纣約约紅红紆纡紇纥紈纨紉纫紋纹納纳紐纽紓纾純纯紕纰紖纼紗纱紘纮紙纸級级紛纷紜纭紝纴紡纺紬䌷紮扎細细紱绂紲绁紳绅紵纻紹绍紺绀紼绋紿绐絀绌終终組组絆绊絎绗絏绁結结絕绝絛绦絝绔絞绞絡络絢绚給给絨绒絰绖統统絲丝絳绛絹绢綁绑綃绡綆绠綈绨綉绣綌绤綏绥經经綜综綞缍綠绿綢绸綣绻綫线綬绶維维綯绹綰绾綱纲網网綳绷綴缀綸纶綹绺綺绮綻绽綽绰綾绫綿绵緄绲緇缁緊紧緋绯緒绪緓绬緔绱緗缃緘缄緙缂線线緝缉緞缎締缔緡缗緣缘緦缌編编緩缓緬缅緯纬緱缑緲缈練练緶缏緹缇緻致縈萦縉缙縊缢縋缒縐绉縑缣縕缊縗缞縛缚縝缜縞缟縟缛縣县縧绦縫缝縭缡縮缩縱纵縲缧縴纤縵缦縶絷縷缕縹缥總总績绩繃绷繅缫繆缪繈襁繒缯織织繕缮繚缭繞绕繡绣繢缋繩绳繪绘繫系繭茧繮缰繯缳繰缲繳缴繹绎繼继繽缤繾缱纇颣纈缬纊纩續续纍累纏缠纓缨纔才纖纤纘缵纜缆缽钵罌罂罎坛罰罚罵骂罷罢羅罗羆罴羈羁羋芈羥羟羨羡義义習习翬翚翹翘翽翙耬耧耮耢聖圣聞闻聯联聰聪聲声聳耸聵聩聶聂職职聹聍聽听聾聋肅肃脅胁脈脉脊嵴脛胫脫脱脹胀腎肾腖胨腡脶腦脑腫肿腳脚腸肠膁肷膃腽膕腘膚肤膞䏝膠胶膩腻膽胆膾脍膿脓臉脸臍脐臏膑臒癯臘腊臚胪臟脏臠脔臢臜臥卧臨临臺台與与興兴舉举舊旧艙舱艤舣艦舰艫舻艱艰艷艳艸艹芻刍苧苎茲兹荊荆莊庄莖茎莢荚莧苋華华萇苌萊莱萬万萵莴葉叶葒荭著着葤荮葦苇葷荤蒓莼蒔莳蒞莅蒼苍蓀荪蓋盖蓧莜蓮莲蓯苁蓴莼蓽荜蔔卜蔞蒌蔣蒋蔥葱蔦茑蔭荫蕁荨蕆蒇蕎荞蕒荬蕓芸蕕莸蕘荛蕢蒉蕩荡蕪芜蕭萧蕷蓣薈荟薊蓟薌芗薑姜薔蔷薘荙薟莶薦荐薩萨薺荠藉借藍蓝藎荩藝艺藥药藪薮藭䓖藶苈藹蔼藺蔺蘀萚蘄蕲蘆芦蘇苏蘊蕴蘋苹蘚藓蘞蔹蘢茏蘭兰蘺蓠蘿萝處处虛虚虜虏號号虧亏虯虬蛺蛱蛻蜕蜆蚬蝕蚀蝟猬蝦虾蝸蜗螄蛳螞蚂螢萤螻蝼螿螀蟄蛰蟈蝈蟎螨蟣虮蟬蝉蟯蛲蟲虫蟶蛏蟻蚁蠅蝇蠆虿蠍蝎蠐蛴蠑蝾蠔蚝蠟蜡蠣蛎蠨蟏蠱蛊蠶蚕蠻蛮衊蔑術术衛卫衝冲衹只袞衮裊袅裏里補补裝装裡里製制複复褌裈褘袆褲裤褳裢褸褛褻亵襆幞襇裥襉裥襏袯襖袄襝裣襠裆襤褴襪袜襬摆襯衬襲袭襴襕見见覎觃規规覓觅視视覘觇覡觋覥觍覦觎親亲覬觊覯觏覲觐覷觑覺觉覽览覿觌觀观觴觞觶觯觸触訁讠訂订訃讣計计訊讯訌讧討讨訐讦訒讱訓训訕讪訖讫記记訛讹訝讶訟讼訢䜣訣诀訥讷訩讻訪访設设許许訴诉訶诃診诊詁诂詆诋詎讵詐诈詒诒詔诏評评詖诐詗诇詘诎詛诅詞词詠咏詡诩詢询詣诣試试詩诗詫诧詬诟詭诡詮诠詰诘話话該该詳详詵诜詼诙詿诖誄诔誅诛誆诓誇夸誌志認认誑诳誒诶誕诞誘诱誚诮語语誠诚誡诫誣诬誤误誥诰誦诵誨诲說说誰谁課课誶谇誹诽誼谊調调諂谄諄谆談谈諉诿請请諍诤諏诹諑诼諒谅論论諗谂諛谀諜谍諝谞諞谝諡谥諢诨諤谔諦谛諧谐諫谏諭谕諮谘諱讳諳谙諶谌諷讽諸诸諺谚諼谖諾诺謀谋謁谒謂谓謄誊謅诌謊谎謎谜謐谧謔谑謖谡謗谤謙谦謚谥講讲謝谢謠谣謨谟謫谪謬谬謭谫謳讴謹谨謾谩證证譎谲譏讥譖谮識识譙谯譚谭譜谱譫谵譯译議议譴谴護护譸诪譽誉譾谫讀读讅谉變变讋詟讌䜩讎雠讒谗讓让讕谰讖谶讚赞讜谠讞谳谘咨豈岂豎竖豐丰豔艳豬猪豶豮貓猫貝贝貞贞貟贠負负財财貢贡貧贫貨货販贩貪贪貫贯責责貯贮貰贳貲赀貳贰貴贵貶贬買买貸贷貺贶費费貼贴貽贻貿贸賀贺賁贲賂赂賃赁賄贿賅赅資资賈贾賊贼賑赈賒赊賓宾賕赇賙赒賚赉賜赐賞赏賠赔賡赓賢贤賣卖賤贱賦赋賧赕質质賫赍賬账賭赌賴赖賵赗賺赚賻赙購购賽赛賾赜贄贽贅赘贇赟贈赠贊赞贋赝贍赡贏赢贐赆贓赃贔赑贖赎贗赝贛赣赬赪趕赶趙赵趨趋趲趱跡迹踐践踴踊蹌跄蹕跸蹠跖蹣蹒蹤踪蹺跷蹻硚躂跶躉趸躊踌躋跻躍跃躑踯躒跞躓踬躕蹰躚跹躡蹑躥蹿躦躜躪躏軀躯車车軋轧軌轨軍军軑轪軒轩軔轫軛轭軟软軤轷軫轸軲轱軸轴軹轵軺轺軻轲軼轶軾轼較较輅辂輇辁輈辀載载輊轾輒辄輔辅輕轻輛辆輜辎輝辉輞辋輟辍輥辊輦辇輩辈輪轮輬辌輯辑輳辏輸输輻辐輾辗輿舆轀辒轂毂轄辖轅辕轆辘轉转轍辙轎轿轔辚轟轰轡辔轢轹轤轳辦办辭辞辮辫辯辩農农迴回逕迳這这連连進进遊游運运過过達达違违遙遥遜逊遝沓遞递遠远適适遲迟遷迁選选遺遗遼辽邁迈還还邇迩邊边邏逻邐逦郟郏郤郄郵邮鄆郓鄉乡鄒邹鄔邬鄖郧鄧邓鄭郑鄰邻鄲郸鄴邺鄶郐鄺邝酈郦醃腌醜丑醞酝醫医醬酱醱酦釀酿釁衅釃酾釅酽釋释釓钆釔钇釕钌釗钊釘钉釙钋針针釣钓釤钐釧钏釩钒釵钗釷钍釹钕釺钎釾䥺鈀钯鈁钫鈃钘鈄钭鈈钚鈉钠鈍钝鈎钩鈐钤鈑钣鈒钑鈔钞鈕钮鈞钧鈣钙鈥钬鈦钛鈧钪鈮铌鈰铈鈳钶鈴铃鈷钴鈸钹鈹铍鈺钰鈽钸鈾铀鈿钿鉀钾鉈铊鉉铉鉍铋鉑铂鉕钷鉗钳鉚铆鉛铅鉞钺鉢钵鉤钩鉦钲鉬钼鉭钽鉶铏鉸铰鉺铒鉻铬鉿铪銀银銃铳銅铜銍铚銑铣銓铨銖铢銘铭銚铫銛铦銜衔銠铑銣铷銥铱銦铟銨铵銩铥銪铕銫铯銬铐銱铞銳锐銷销銹锈銻锑銼锉鋁铝鋃锒鋅锌鋇钡鋌铤鋏铗鋒锋鋙铻鋝锊鋟锓鋣铘鋤锄鋥锃鋦锔鋨锇鋩铓鋪铺鋯锆鋰锂鋱铽鋶锍鋸锯鋼钢錁锞錄录錆锖錇锫錈锩錐锥錒锕錕锟錘锤錙锱錚铮錛锛錟锬錠锭錡锜錢钱錦锦錨锚錩锠錫钖錮锢錯错錳锰錶表錸铼鍀锝鍁锨鍆钔鍇锴鍈锳鍋锅鍍镀鍔锷鍘铡鍚钖鍛锻鍠锽鍤锸鍥锲鍩锘鍬锹鍰锾鍵键鍶锶鍺锗鍾钟鎂镁鎄锿鎇镅鎊镑鎔镕鎖锁鎘镉鎛镈鎡镃鎢钨鎣蓥鎦镏鎧铠鎩铩鎪锼鎬镐鎮镇鎰镒鎳镍鎵镓鎸镌鎿镎鏃镞鏇旋鏈链鏌镆鏍镙鏐镠鏑镝鏗铿鏘锵鏜镗鏝镘鏞镛鏟铲鏡镜鏢镖鏤镂鏨錾鏰镚鏵铧鏷镤鏹镪鏺䥽鏽锈鐃铙鐋铴鐐镣鐒铹鐓镦鐔镡鐘钟鐙镫鐝镢鐠镨鐥䦅鐦锎鐧锏鐨镄鐫镌鐮镰鐯䦃鐲镯鐳镭鐵铁鐶镮鐸铎鐺铛鐿镱鑄铸鑊镬鑌镔鑒鉴鑔镲鑕锧鑞镴鑠铄鑣镳鑥镥鑭镧鑰钥鑲镶鑷镊鑹镩鑼锣鑽钻鑾銮鑿凿钁䦆钂镋钜鉅镟碹長长門门閂闩閃闪閆闫閈闬閉闭開开閌闶閎闳閏闰閑闲閒闲間间閔闵閘闸閡阂閣阁閤合閥阀閨闺閩闽閫阃閬阆閭闾閱阅閶阊閹阉閻阎閼阏閽阍閾阈閿阌闃阒闆板闈闱闊阔闋阕闌阑闍阇闐阗闒阘闓闿闔阖闕阙闖闯關关闞阚闠阓闡阐闢辟闤阛闥闼阪坂陘陉陝陕陣阵陰阴陳陈陸陆陽阳隉陧隊队階阶隕陨際际隨随險险隱隐隴陇隸隶隻只雋隽雖虽雙双雛雏雜杂雞鸡離离難难雲云電电霧雾霽霁靂雳靄霭靆叇靈灵靉叆靚靓靜静靦腼靨靥鞀鼗鞏巩鞦秋鞽鞒韁缰韃鞑韆千韉鞯韋韦韌韧韍韨韓韩韙韪韜韬韝鞴韞韫韻韵響响頁页頂顶頃顷項项順顺頇顸須须頊顼頌颂頎颀頏颃預预頑顽頒颁頓顿頗颇領领頜颌頡颉頤颐頦颏頭头頮颒頰颊頲颋頴颕頷颔頸颈頹颓頻频顆颗題题額额顎颚顏颜顒颙顓颛顔颜願愿顙颡顛颠類类顢颟顥颢顧顾顫颤顬颥顯显顰颦顱颅顳颞顴颧風风颭飐颮飑颯飒颱台颳刮颶飓颸飔颺飏颻飖颼飕飀飗飄飘飆飙飛飞飢饥飣饤飥饦飩饨飪饪飫饫飭饬飯饭飲饮飴饴飼饲飽饱飾饰飿饳餃饺餄饸餅饼餉饷養养餌饵餎饹餏饻餑饽餒馁餓饿餕馂餖饾餘余餛馄餜馃餞饯餡馅館馆餱糇餳饧餶馉餷馇餺馎餼饩餾馏餿馊饁馌饃馍饅馒饈馐饉馑饊馓饋馈饌馔饑饥饒饶饗飨饜餍饞馋饢馕馬马馭驭馮冯馱驮馳驰馴驯馹驲駁驳駐驻駑驽駒驹駔驵駕驾駘骀駙驸駛驶駝驼駟驷駡骂駢骈駭骇駰骃駱骆駸骎駿骏騁骋騂骍騅骓騌骔騍骒騎骑騏骐騖骛騙骗騤骙騫骞騭骘騮骝騰腾騶驺騷骚騸骟騾骡驀蓦驁骜驂骖驃骠驄骢驅驱驊骅驌骕驍骁驏骣驕骄驗验驚惊驛驿驟骤驢驴驤骧驥骥驦骦驪骊驫骉骯肮髏髅髒脏體体髕髌髖髋髮发鬁疬鬆松鬍胡鬚须鬢鬓鬥斗鬧闹鬨闹鬩阋鬮阄鬱郁魎魉魘魇魚鱼魛鱽魢鱾魨鲀魯鲁魴鲂魷鱿魺鲄鮁鲅鮃鲆鮊鲌鮋鲉鮍鲏鮎鲇鮐鲐鮑鲍鮒鲋鮓鲊鮚鲒鮜鲘鮝鲞鮞鲕鮣䲟鮦鲖鮪鲔鮫鲛鮭鲑鮮鲜鮳鲓鮶鲪鮺鲝鯀鲧鯁鲠鯇鲩鯉鲤鯊鲨鯒鲬鯔鲻鯕鲯鯖鲭鯗鲞鯛鲷鯝鲴鯡鲱鯢鲵鯤鲲鯧鲳鯨鲸鯪鲮鯫鲰鯰鲶鯴鲺鯵鲹鯷鳀鯽鲫鯿鳊鰁鳈鰂鲗鰃鳂鰆䲠鰈鲽鰉鳇鰌䲡鰍鳅鰏鲾鰐鳄鰒鳆鰓鳃鰜鳒鰟鳑鰠鳋鰣鲥鰥鳏鰧䲢鰨鳎鰩鳐鰭鳍鰮鳁鰱鲢鰲鳌鰳鳓鰵鳘鰷鲦鰹鲣鰻鳗鰼鳛鰾鳔鱂鳉鱅鳙鱈鳕鱉鳖鱒鳟鱔鳝鱖鳜鱗鳞鱘鲟鱝鲼鱟鲎鱠鲙鱣鳣鱤鳡鱧鳢鱨鲿鱭鲚鱯鳠鱷鳄鱸鲈鱺鲡鳥鸟鳧凫鳩鸠鳬凫鳲鸤鳳凤鳴鸣鳶鸢鳾䴓鴆鸩鴇鸨鴉鸦鴒鸰鴕鸵鴛鸳鴝鸲鴞鸮鴟鸱鴣鸪鴦鸯鴨鸭鴬鸴鴯鸸鴰鸹鴴鸻鴷䴕鴻鸿鴿鸽鵁䴔鵂鸺鵃鸼鵐鹀鵑鹃鵒鹆鵓鹁鵜鹈鵝鹅鵠鹄鵡鹉鵪鹌鵬鹏鵮鹐鵯鹎鵲鹊鵷鹓鶄䴖鶇鸫鶉鹑鶊鹒鶓鹋鶖鹙鶘鹕鶚鹗鶡鹖鶤鹍鶥鹛鶩鹜鶪䴗鶬鸧鶯莺鶲鹟鶴鹤鶹鹠鶺鹡鶻鹘鶼鹣鶿鹚鷀鹚鷁鹢鷂鹞鷄鸡鷉䴘鷊鹝鷓鹧鷖鹥鷗鸥鷙鸷鷚鹨鷥鸶鷦鹪鷫鹔鷯鹩鷲鹫鷳鹇鷸鹬鷹鹰鷺鹭鷿䴙鸇鹯鸊䴙鸌鹱鸏鹲鸕鸬鸘鹴鸚鹦鸛鹳鸝鹂鸞鸾鹵卤鹹咸鹺鹾鹼硷鹽盐麅狍麗丽麥麦麩麸麯曲麵面麼么麽么黃黄黌黉點点黨党黲黪黴霉黶黡黷黩黽黾黿鼋鼂鼌鼇鳌鼉鼍鼕冬鼴鼹齇齄齊齐齋斋齎赍齏齑齒齿齔龀齕龁齗龂齙龅齜龇齟龃齠龆齡龄齣出齦龈齧啮齪龊齬龉齲龋齶腭齷龌龍龙龐庞龑䶮龔龚龕龛龜龟';
+const T2S_MAP = (()=>{
+  const m = {};
+  for(let i=0; i<T2S_PAIRS.length; i+=2) m[T2S_PAIRS[i]] = T2S_PAIRS[i+1];
+  return m;
+})();
+function normCJK(str){
+  let out='';
+  for(const ch of String(str||'')) out += (T2S_MAP[ch] || ch);
+  return out.toLowerCase();
+}
+
 function searchMasterGames(q){
-  const s = String(q||'').trim().toLowerCase();
+  const s = normCJK(String(q||'').trim());
   if(!s) return AppState.library.masters.slice(0, 60);
-  const terms = s.split(/\s+/);
+  const terms = s.split(/\s+/).filter(Boolean);
   return AppState.library.masters.filter(g=>{
-    const hay = (g.red+' '+g.black+' '+g.event+' '+g.date+' '+g.result+' '+g.cat).toLowerCase();
+    const hay = normCJK(g.red+' '+g.black+' '+g.event+' '+g.date+' '+g.result+' '+g.cat);
     return terms.every(t=>hay.includes(t));
   }).slice(0, 60);
 }
@@ -2697,7 +2734,15 @@ function renderMasterQuickFilters(){
   box.innerHTML='';
   const games=AppState.library.masters;
   if(!games.length) return;
-  const count=(arr)=>{ const m={}; arr.forEach(k=>{ if(k) m[k]=(m[k]||0)+1; }); return m; };
+  /* 以繁簡正規化後的字串歸戶；顯示時在各變體中優先採用繁體寫法 */
+  const count=(arr)=>{
+    const m={};
+    arr.forEach(k=>{ if(!k) return; const key=normCJK(k);
+      if(!m[key]) m[key]={label:k, n:0};
+      else if(normCJK(k)!==k && normCJK(m[key].label)===m[key].label) m[key].label=k;
+      m[key].n++; });
+    return m;
+  };
   const players=count(games.flatMap(g=>[g.red,g.black]));
   const cats=count(games.map(g=>g.cat));
   const chip=(text,n,q,color)=>{
@@ -2711,10 +2756,10 @@ function renderMasterQuickFilters(){
     });
     box.appendChild(b);
   };
-  Object.keys(cats).sort((a,b)=>cats[b]-cats[a]).slice(0,6)
-    .forEach(c=>chip(c,cats[c],c,'#8FC8E8'));
-  Object.keys(players).sort((a,b)=>players[b]-players[a]).slice(0,8)
-    .forEach(p=>chip(p,players[p],p,'#E8CD7A'));
+  Object.keys(cats).sort((a,b)=>cats[b].n-cats[a].n).slice(0,6)
+    .forEach(k=>chip(cats[k].label, cats[k].n, cats[k].label, '#8FC8E8'));
+  Object.keys(players).sort((a,b)=>players[b].n-players[a].n).slice(0,8)
+    .forEach(k=>chip(players[k].label, players[k].n, players[k].label, '#E8CD7A'));
 }
 
 function renderMasterResults(list){
