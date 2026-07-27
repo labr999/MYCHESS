@@ -444,6 +444,7 @@
     <label style="display:flex;align-items:center;gap:6px;font-size:.76rem;color:#E8CD7A;cursor:pointer;">
       <input type="checkbox" id="chkSpeak" style="cursor:pointer;"> 🔊 語音提示
     </label>
+    <select id="voiceSelect" style="max-width:150px;font-size:.68rem;background:rgba(0,0,0,.3);color:#F0E6D2;border:1px solid rgba(201,162,39,.4);border-radius:7px;padding:3px 6px;font-family:inherit;"><option value="">自動選擇語音</option></select>
     <label style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#C9B48A;">
       語速 <input type="range" id="rngRate" min="0.6" max="1.6" step="0.1" value="1" style="width:88px;cursor:pointer;">
       <span id="rateVal">1.0×</span>
@@ -472,6 +473,7 @@
     <button id="btnSearchOpen">🔍 搜尋此局面的開局影片</button>
     <button id="btnImport">📋 匯入棋譜</button>
     <button id="btnMaster">🏆 大師棋庫</button>
+    <button id="btnDpxq">🌐 東萍入口</button>
     <button id="btnExport">📤 匯出棋譜</button>
   </div>
   <div class="import-panel" id="exportPanel">
@@ -508,6 +510,38 @@
     <div class="imp-msg" id="mstMsg"></div>
     <div id="mstQuick" style="display:flex;flex-wrap:wrap;gap:5px;margin:4px 0 8px;"></div>
     <div id="mstResults" style="max-height:280px;overflow-y:auto;"></div>
+  </div>
+  <div class="import-panel" id="saveConfirmPanel">
+    <div style="font-size:.85rem;color:#E8CD7A;font-weight:700;margin-bottom:6px;">📝 儲存前確認分類</div>
+    <div id="saveSuggest" style="font-size:.76rem;color:#C9B48A;margin-bottom:8px;line-height:1.5;"></div>
+    <div class="imp-row">
+      <select id="saveSide"><option value="先手">先手</option><option value="後手">後手</option></select>
+      <select id="saveCat" style="flex:1;min-width:170px;"></select>
+    </div>
+    <div class="imp-row" style="margin-top:6px;">
+      <input type="text" id="saveName" placeholder="棋譜名稱" style="flex:1;min-width:200px;background:rgba(0,0,0,.3);color:#F0E6D2;border:1px solid rgba(201,162,39,.4);border-radius:8px;padding:7px 10px;font-family:inherit;font-size:.8rem;">
+    </div>
+    <div class="imp-row" style="margin-top:8px;">
+      <button id="btnDoSave">✔ 確認儲存</button>
+      <button id="btnCancelSave">取消</button>
+    </div>
+  </div>
+  <div class="import-panel" id="dpxqPanel">
+    <div style="font-size:.85rem;color:#E8CD7A;font-weight:700;margin-bottom:6px;">🌐 東萍象棋網入口</div>
+    <div class="imp-row">
+      <input type="text" id="dpxqQuery" placeholder="搜尋棋手或賽事，如：王天一、楊官璘" style="flex:1;min-width:170px;background:rgba(0,0,0,.3);color:#F0E6D2;border:1px solid rgba(201,162,39,.4);border-radius:8px;padding:7px 10px;font-family:inherit;font-size:.8rem;">
+      <button id="btnDpxqSearch">🔍 到東萍搜尋</button>
+    </div>
+    <div style="font-size:.72rem;color:#C9B48A;margin:8px 0 4px;line-height:1.55;">
+      在東萍開啟對局頁後，可用下面的<b>書籤小工具</b>一鍵把棋譜帶回本程式（免手動複製貼上）：<br>
+      ① 全選複製下方文字　② 在瀏覽器新增書籤，網址欄貼上　③ 在東萍對局頁點該書籤即自動跳回並匯入
+    </div>
+    <textarea id="dpxqBookmarklet" readonly rows="3" style="width:100%;background:rgba(0,0,0,.3);color:#9FD8A8;border:1px solid rgba(120,200,160,.35);border-radius:8px;padding:7px 10px;font-size:.66rem;font-family:monospace;"></textarea>
+    <div class="imp-row" style="margin-top:6px;">
+      <button id="btnCopyBookmarklet">📋 複製書籤工具</button>
+      <button id="btnCancelDpxq">關閉</button>
+    </div>
+    <div style="font-size:.68rem;color:#C9B48A;margin-top:6px;">※ 東萍完整著法需登入該站才看得到；也可照舊複製棋譜碼貼進「📋 匯入棋譜」。</div>
   </div>
   <div class="moves" id="movesList"></div>
   <div class="desc" id="descBox"></div>
@@ -988,7 +1022,22 @@ function renderAnnotations(ctx){
     html += `<circle id="lastRing" cx="${X(dC(ctx.last.to[0]))}" cy="${Y(dR(ctx.last.to[1]))}" r="27" fill="none" stroke="#C9A227" stroke-width="2.5" opacity="0.85"/>`;
   }
   if(ctx.rec && AppState.rec.selected){
-    html += `<circle cx="${X(dC(AppState.rec.selected[0]))}" cy="${Y(dR(AppState.rec.selected[1]))}" r="28" fill="none" stroke="#6FCF6F" stroke-width="3"/>`;
+    const sel = AppState.rec.selected;
+    html += `<circle cx="${X(dC(sel[0]))}" cy="${Y(dR(sel[1]))}" r="28" fill="none" stroke="#6FCF6F" stroke-width="3"/>`;
+    /* 合法著法提示：空點畫小圓點、可吃子畫紅圈 */
+    const stm = ctx.idx%2===0 ? 'r' : 'b';
+    const mover = ctx.pieces.find(p=>p.col===sel[0] && p.row===sel[1]);
+    if(mover && mover.side===stm){
+      for(let c=0;c<9;c++) for(let r=0;r<10;r++){
+        if(c===sel[0] && r===sel[1]) continue;
+        if(!isLegalMoveXQ(ctx.pieces, stm, sel, [c,r])) continue;
+        const tx=X(dC(c)), ty=Y(dR(r));
+        const cap = ctx.pieces.find(p=>p.col===c && p.row===r && p.side!==stm);
+        html += cap
+          ? `<circle cx="${tx}" cy="${ty}" r="26" fill="none" stroke="#E86A5A" stroke-width="2.5" stroke-dasharray="5 4" opacity=".9"/>`
+          : `<circle cx="${tx}" cy="${ty}" r="6" fill="#6FCF6F" opacity=".55"/>`;
+      }
+    }
   }
   return html;
 }
@@ -1380,10 +1429,34 @@ function pickChineseVoice(){
   }
   return null;
 }
+function populateVoiceSelect(){
+  const sel=document.getElementById('voiceSelect');
+  if(!sel || !AppState.speech.supported) return;
+  const vs = window.speechSynthesis.getVoices() || [];
+  /* 中文語音排前面 */
+  const zh = vs.filter(v=>/^zh|cmn/i.test(v.lang||''));
+  const rest = vs.filter(v=>!/^zh|cmn/i.test(v.lang||''));
+  sel.innerHTML='<option value="">自動選擇語音</option>';
+  [...zh, ...rest].forEach(v=>{
+    const o=document.createElement('option');
+    o.value=v.name; o.textContent=(v.name||'?')+'（'+(v.lang||'')+'）';
+    sel.appendChild(o);
+  });
+  const saved = sel.dataset.saved || '';
+  if(saved && vs.some(v=>v.name===saved)) sel.value=saved;
+}
+
 function initSpeechVoices(){
   if(!AppState.speech.supported) return;
-  const apply=()=>{
-    AppState.speech.voice = pickChineseVoice();
+  const apply=async ()=>{
+    const sel=document.getElementById('voiceSelect');
+    if(sel && !sel.dataset.saved){
+      sel.dataset.saved = (await STORE.get('xiangqi_voice')) || '';
+    }
+    populateVoiceSelect();
+    const vs = window.speechSynthesis.getVoices() || [];
+    const manual = sel && sel.value ? vs.find(v=>v.name===sel.value) : null;
+    AppState.speech.voice = manual || pickChineseVoice();
     AppState.speech.ready = true;
     const hint=document.getElementById('speakHint');
     if(hint && AppState.speech.on){
@@ -2951,6 +3024,15 @@ document.getElementById('mstQuery').addEventListener('keydown', (e)=>{
       if(hint) hint.textContent='';
     }
   });
+  const vsel=document.getElementById('voiceSelect');
+  if(vsel) vsel.addEventListener('change', ()=>{
+    const vs=window.speechSynthesis.getVoices()||[];
+    AppState.speech.voice = vs.find(v=>v.name===vsel.value) || pickChineseVoice();
+    STORE.set('xiangqi_voice', vsel.value);
+    if(AppState.speech.on) speak('已切換語音');
+    const hint=document.getElementById('speakHint');
+    if(hint) hint.textContent = AppState.speech.voice ? '語音：'+(AppState.speech.voice.name||AppState.speech.voice.lang) : '';
+  });
   if(rng) rng.addEventListener('input', ()=>{
     AppState.speech.rate=parseFloat(rng.value);
     if(rv) rv.textContent=AppState.speech.rate.toFixed(1)+'×';
@@ -3294,7 +3376,13 @@ function classifyForSave(tokens, preferSide){
   const pool = [...deep, ...heur, ...exact];
   const seen = new Set();
   const uniq = pool.filter(r=>{ const k=r.side+'|'+r.cat; if(seen.has(k))return false; seen.add(k); return true; });
-  return uniq.find(r=>r.side===preferSide) || uniq[0] || null;
+  const chosen = uniq.find(r=>r.side===preferSide) || uniq[0] || null;
+  if(!chosen) return null;
+  /* 附上信心資訊：無深度吻合且有多個不同分類候選 → 模稜兩可，供儲存確認面板提示 */
+  const distinct = uniq.filter((r,i)=>uniq.findIndex(x=>x.cat===r.cat)===i);
+  chosen.ambiguous = (deep.length===0 && distinct.length>1);
+  chosen.candidates = distinct.slice(0,3).map(r=>({side:r.side, cat:r.cat}));
+  return chosen;
 }
 
 document.getElementById('btnRecHistory').addEventListener('click', ()=>{
@@ -3317,50 +3405,141 @@ document.getElementById('btnRecHistory').addEventListener('click', ()=>{
   selectCategory('記譜歷史', entry.lines.length-1);
 });
 
+function populateSaveCategoryOptions(selectedCat){
+  const sel = document.getElementById('saveCat');
+  const side = document.getElementById('saveSide').value;
+  sel.innerHTML = '<option value="__UNCAT__">📂 未分類（待整理）</option>';
+  Object.keys(DATA[side] || {}).forEach(cat=>{
+    const opt = document.createElement('option');
+    opt.value = cat; opt.textContent = cat;
+    sel.appendChild(opt);
+  });
+  if(selectedCat && DATA[side][selectedCat]) sel.value = selectedCat;
+}
+document.getElementById('saveSide').addEventListener('change', ()=>populateSaveCategoryOptions());
+
 document.getElementById('btnSaveRec').addEventListener('click', ()=>{
   const box = document.getElementById('searchResults');
-  box.innerHTML='';
-  box.classList.add('show');
+  box.innerHTML=''; box.classList.remove('show');
   if(!AppState.rec.on){
     box.innerHTML='<div class="sr-empty">請先用「先手記譜」或「後手記譜」記錄棋局，再按儲存。</div>';
-    return;
+    box.classList.add('show'); return;
   }
   if(AppState.rec.moves.length<2){
     box.innerHTML='<div class="sr-empty">目前記譜不足2步，請先走幾步再儲存。</div>';
-    return;
+    box.classList.add('show'); return;
   }
   const preferSide = AppState.rec.flip ? '後手' : '先手';
   const tokens = AppState.rec.moves.map(m=>m.notation);
   const cls = classifyForSave(tokens, preferSide);
-  const side = cls ? cls.side : preferSide;
-  const cat  = cls ? cls.cat  : '匯入棋譜（未分類）';
-  const why  = cls ? cls.why  : '無法自動判斷開局類型，已放入未分類';
-  const rounds = Math.ceil(tokens.length/2);
-  const name = (AppState.rec.flip?'後手記譜':'先手記譜')+'（'+rounds+'回合）#'+(AppState.library.imported.length+1);
 
-  /* 同步存一份到「記譜歷史」，方便日後叫出（依記譜方歸屬先/後手） */
-  const now=new Date();
-  const pad=n=>String(n).padStart(2,'0');
+  const panel = document.getElementById('saveConfirmPanel');
+  panel.classList.add('show');
+  document.getElementById('saveSide').value = cls ? cls.side : preferSide;
+  populateSaveCategoryOptions(cls && !cls.ambiguous ? cls.cat : null);
+  if(!cls) document.getElementById('saveCat').value='__UNCAT__';
+  else if(cls.ambiguous && DATA[cls.side][cls.cat]) document.getElementById('saveCat').value=cls.cat;
+
+  const rounds = Math.ceil(tokens.length/2);
+  document.getElementById('saveName').value =
+    (AppState.rec.flip?'後手記譜':'先手記譜')+'（'+rounds+'回合）#'+(AppState.library.imported.length+1);
+
+  const sug = document.getElementById('saveSuggest');
+  if(cls){
+    let html = '系統建議：<b style="color:#C9A227;">'+cls.side+'｜'+cls.cat+'</b>　<span style="opacity:.8;">（'+cls.why+'）</span>';
+    if(cls.ambiguous && cls.candidates && cls.candidates.length>1){
+      html += '<br><span style="color:#E8A050;">⚠ 前幾步與多個開局相同，信心不足。其他可能：'+
+        cls.candidates.slice(1).map(c=>c.cat).join('、')+'，請確認後再儲存。</span>';
+    }
+    sug.innerHTML = html;
+  } else {
+    sug.innerHTML = '系統無法自動判斷開局類型，請手動選擇分類。';
+  }
+});
+
+document.getElementById('btnDoSave').addEventListener('click', ()=>{
+  const side = document.getElementById('saveSide').value;
+  let cat = document.getElementById('saveCat').value;
+  if(cat==='__UNCAT__') cat='匯入棋譜（未分類）';
+  const name = document.getElementById('saveName').value.trim() || '未命名記譜';
+  const tokens = AppState.rec.moves.map(m=>m.notation);
+  const preferSide = AppState.rec.flip ? '後手' : '先手';
+
+  /* 同步存一份到「記譜歷史」（依記譜方歸屬） */
+  const now=new Date(); const pad=n=>String(n).padStart(2,'0');
   const stamp=now.getFullYear()+'-'+pad(now.getMonth()+1)+'-'+pad(now.getDate())+' '+pad(now.getHours())+':'+pad(now.getMinutes());
   addImportedGame(preferSide, '記譜歷史', stamp+'　'+name, tokens);
 
   const r = addImportedGame(side, cat, name, tokens);
+  const box = document.getElementById('searchResults');
   if(!r.ok){
-    box.innerHTML='<div class="sr-empty">儲存失敗：'+r.err+'</div>';
-    return;
+    box.innerHTML='<div class="sr-empty" style="color:#E08080;">儲存失敗：'+r.err+'</div>';
+    box.classList.add('show'); return;
   }
-  box.innerHTML='<div class="sr-empty" style="color:#8FD98F;">✔ 已儲存「'+name+'」至 <b style="color:#C9A227;">'+side+'｜'+cat+'</b>（依據：'+why+'）</div>';
+  document.getElementById('saveConfirmPanel').classList.remove('show');
   refreshImportCategoryOptions();
-  // 清空記譜、結束記譜模式並跳到剛儲存的棋譜
   AppState.rec.moves = [];
   stopRecording();
-  box.classList.add('show');   // stopRecording會關閉結果框，重新打開顯示確認訊息
-  box.innerHTML='<div class="sr-empty" style="color:#8FD98F;">✔ 已儲存「'+name+'」至 <b style="color:#C9A227;">'+side+'｜'+cat+'</b>（依據：'+why+'）</div>';
   sideSelect.value=side;
   populateCategories();
   const entry=DATA[side][cat];
   selectCategory(cat, entry.lines.length-1);
+  box.classList.add('show');
+  box.innerHTML='<div class="sr-empty" style="color:#8FD98F;">✔ 已儲存「'+name+'」至 <b style="color:#C9A227;">'+side+'｜'+cat+'</b></div>';
+  setTimeout(()=>box.classList.remove('show'), 4000);
 });
+document.getElementById('btnCancelSave').addEventListener('click', ()=>{
+  document.getElementById('saveConfirmPanel').classList.remove('show');
+});
+
+/* ==================== 東萍象棋網入口 ==================== */
+document.getElementById('btnDpxq').addEventListener('click', ()=>{
+  const p=document.getElementById('dpxqPanel');
+  const showing=p.classList.toggle('show');
+  ['importPanel','exportPanel','masterPanel','saveConfirmPanel'].forEach(id=>document.getElementById(id).classList.remove('show'));
+  if(showing){
+    /* 書籤工具以目前部署網址即時產生（跳回本站並自動匯入） */
+    const here = location.origin + location.pathname;
+    const bm = "javascript:(function(){var h=document.documentElement.innerHTML;"+
+      "var m=h.match(/\\[DhtmlXQ\\][\\s\\S]*?\\[\\/DhtmlXQ\\]/i);"+
+      "if(!m){alert('這一頁沒有偵測到東萍棋譜');return;}"+
+      "location.href='"+here+"?import='+encodeURIComponent(m[0]);})();";
+    document.getElementById('dpxqBookmarklet').value = bm;
+  }
+});
+document.getElementById('btnCancelDpxq').addEventListener('click', ()=>{
+  document.getElementById('dpxqPanel').classList.remove('show');
+});
+document.getElementById('btnDpxqSearch').addEventListener('click', ()=>{
+  const q=document.getElementById('dpxqQuery').value.trim();
+  if(!q) return;
+  window.open('https://www.google.com/search?q='+encodeURIComponent('site:dpxq.com '+q), '_blank');
+});
+document.getElementById('dpxqQuery').addEventListener('keydown', e=>{
+  if(e.key==='Enter') document.getElementById('btnDpxqSearch').click();
+});
+document.getElementById('btnCopyBookmarklet').addEventListener('click', async ()=>{
+  const ta=document.getElementById('dpxqBookmarklet');
+  ta.select();
+  try{ await navigator.clipboard.writeText(ta.value);
+    document.getElementById('btnCopyBookmarklet').textContent='✔ 已複製';
+  }catch(e){ document.execCommand && document.execCommand('copy'); }
+  setTimeout(()=>{ document.getElementById('btnCopyBookmarklet').textContent='📋 複製書籤工具'; }, 1800);
+});
+
+/* 網址帶入棋譜（書籤工具跳回時自動匯入） */
+(function checkUrlImport(){
+  try{
+    const imp = new URLSearchParams(location.search).get('import');
+    if(!imp) return;
+    setTimeout(()=>{
+      document.getElementById('importPanel').classList.add('show');
+      document.getElementById('impText').value = imp;
+      document.getElementById('btnDoImport').click();
+      history.replaceState(null, '', location.pathname);
+    }, 400);   /* 待棋庫載入完成 */
+  }catch(e){}
+})();
 
 /* 啟動：載入 openings/*.json 棋譜庫，完成後才建立選單 */
 loadOpeningLibrary();
