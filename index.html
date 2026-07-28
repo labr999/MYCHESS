@@ -534,7 +534,8 @@
     </div>
     <div style="font-size:.72rem;color:#C9B48A;margin:8px 0 4px;line-height:1.55;">
       在東萍開啟對局頁後，可用下面的<b>書籤小工具</b>一鍵把棋譜帶回本程式（免手動複製貼上）：<br>
-      ① 全選複製下方文字　② 在瀏覽器新增書籤，網址欄貼上　③ 在東萍對局頁點該書籤即自動跳回並匯入
+      ① 全選複製下方文字　② 在瀏覽器新增書籤，網址欄貼上　③ 在東萍對局頁執行該書籤即自動帶回<br>
+      <b>手機用法</b>：Chrome→先把任一頁加入書籤，再到書籤編輯把網址換成此文字；在東萍頁面時於<b>網址列輸入書籤名稱</b>點選執行。iPhone Safari→加書籤後於書籤清單「編輯」替換網址。棋譜較長時會自動複製並跳回，貼上一次即可。
     </div>
     <textarea id="dpxqBookmarklet" readonly rows="3" style="width:100%;background:rgba(0,0,0,.3);color:#9FD8A8;border:1px solid rgba(120,200,160,.35);border-radius:8px;padding:7px 10px;font-size:.66rem;font-family:monospace;"></textarea>
     <div class="imp-row" style="margin-top:6px;">
@@ -2189,6 +2190,29 @@ document.getElementById('btnCancelImport').addEventListener('click', ()=>{
   document.getElementById('impMsg').textContent='';
 });
 
+/* 匯入 YouTube 影音（影片或播放清單）為 🎬 影音教學條目 */
+function addImportedMedia(side, cat, name, media, save){
+  const e = ensureCategory(side, cat, '由匯入功能建立的影音分類。');
+  const o = {name, desc:'由匯入功能加入的教學影音。', moves:[]};
+  if(media.list) o.playlistId = media.list;
+  else if(media.vid) o.videoUrl = 'https://www.youtube.com/watch?v='+media.vid;
+  e.lines.push(o);
+  if(save!==false){
+    AppState.library.imported.push({side, cat, name, media});
+    persistImports();
+    populateCategories();
+    refreshImportCategoryOptions();
+  }
+  return {ok:true};
+}
+function parseYouTube(text){
+  if(!/youtube\.com|youtu\.be/i.test(text)) return null;
+  const list=(text.match(/[?&]list=([\w-]+)/)||[])[1];
+  const vid=(text.match(/(?:[?&]v=|youtu\.be\/)([\w-]{6,})/)||[])[1];
+  if(!list && !vid) return null;
+  return {list, vid};
+}
+
 document.getElementById('btnDoImport').addEventListener('click', ()=>{
   const msg=document.getElementById('impMsg');
   msg.className='imp-msg';
@@ -2199,7 +2223,26 @@ document.getElementById('btnDoImport').addEventListener('click', ()=>{
     const r0=parseAnyRecord(raw);
     tokens=r0.tokens; fmt=r0.fmt;
   }catch(e){ msg.textContent='解析失敗：'+e.message; msg.classList.add('err'); return; }
-  if(tokens.length<2){ msg.textContent='無法從文字中辨識出著法。支援格式：中文記譜（炮二平五 馬2進3）、PlayOK/WXF（C2.5 h8+7）、ICCS 座標（H2-E2）、東萍 DhtmlXQ。'; msg.classList.add('err'); return; }
+  /* YouTube 連結 → 加入影音教學（非棋譜路徑） */
+  const yt = parseYouTube(raw);
+  if(yt){
+    const catSel = document.getElementById('impCategory').value;
+    let side, cat;
+    if(catSel.includes('|') && !catSel.startsWith('auto')){
+      [side, cat] = catSel.split('|');
+    } else {
+      side = catSel==='auto:後手' ? '後手' : (catSel==='auto:先手' ? '先手' : sideSelect.value);
+      cat = '影音收藏';
+    }
+    const name = raw.replace(/https?:\/\/\S+/g,'').trim() || (yt.list?'YouTube 播放清單':'YouTube 教學影片');
+    addImportedMedia(side, cat, name, yt);
+    msg.innerHTML='✔ 已加入影音教學：<b>'+side+'｜'+cat+'</b>「'+name+'」'+(yt.list?'（播放清單）':'（單支影片）')+
+      '<br>可在選單的 🎬 影音教學區找到。要自訂名稱：在網址前面加一行文字再匯入。';
+    document.getElementById('impText').value='';
+    return;
+  }
+
+  if(tokens.length<2){ msg.textContent='無法從文字中辨識出著法。支援格式：中文記譜（炮二平五 馬2進3）、PlayOK/WXF（C2.5 h8+7）、ICCS 座標（H2-E2）、東萍 DhtmlXQ、YouTube 影片／播放清單網址。'; msg.classList.add('err'); return; }
 
   /* 東萍棋譜含對局中繼資料 → 直接歸入大師棋庫（棋手／賽事／日期／勝負） */
   const meta = (fmt==='dhtmlxq') ? parseDhtmlXqMeta(raw) : null;
@@ -2276,7 +2319,10 @@ document.getElementById('btnDoImport').addEventListener('click', ()=>{
     const v = await STORE.get('xiangqi_imported_games');
     if(v){
       const saved=JSON.parse(v);
-      saved.forEach(g=>{ addImportedGame(g.side, g.cat, g.name, g.tokens, false); });
+      saved.forEach(g=>{
+        if(g.media) addImportedMedia(g.side, g.cat, g.name, g.media, false);
+        else addImportedGame(g.side, g.cat, g.name, g.tokens, false);
+      });
       AppState.library.imported = saved;
       if(saved.length>0) changed=true;
     }
@@ -3500,10 +3546,16 @@ document.getElementById('btnDpxq').addEventListener('click', ()=>{
   if(showing){
     /* 書籤工具以目前部署網址即時產生（跳回本站並自動匯入） */
     const here = location.origin + location.pathname;
+    /* 東萍是 http 站且棋譜碼常超過網址長度上限，改採「短碼走網址、長碼複製後跳回貼上」 */
     const bm = "javascript:(function(){var h=document.documentElement.innerHTML;"+
       "var m=h.match(/\\[DhtmlXQ\\][\\s\\S]*?\\[\\/DhtmlXQ\\]/i);"+
       "if(!m){alert('這一頁沒有偵測到東萍棋譜');return;}"+
-      "location.href='"+here+"?import='+encodeURIComponent(m[0]);})();";
+      "var c=m[0];"+
+      "if(c.length<1500){location.href='"+here+"?import='+encodeURIComponent(c);return;}"+
+      "var t=document.createElement('textarea');t.value=c;document.body.appendChild(t);t.select();"+
+      "try{document.execCommand('copy');}catch(e){}"+
+      "document.body.removeChild(t);"+
+      "location.href='"+here+"?paste=1';})();";
     document.getElementById('dpxqBookmarklet').value = bm;
   }
 });
@@ -3530,7 +3582,17 @@ document.getElementById('btnCopyBookmarklet').addEventListener('click', async ()
 /* 網址帶入棋譜（書籤工具跳回時自動匯入） */
 (function checkUrlImport(){
   try{
-    const imp = new URLSearchParams(location.search).get('import');
+    const q = new URLSearchParams(location.search);
+    if(q.get('paste')){
+      setTimeout(()=>{
+        document.getElementById('importPanel').classList.add('show');
+        document.getElementById('impMsg').textContent='棋譜碼已複製到剪貼簿：請長按下方輸入框「貼上」，再按「匯入並分類」。';
+        document.getElementById('impText').focus();
+        history.replaceState(null, '', location.pathname);
+      }, 400);
+      return;
+    }
+    const imp = q.get('import');
     if(!imp) return;
     setTimeout(()=>{
       document.getElementById('importPanel').classList.add('show');
