@@ -452,3 +452,22 @@ function renderBoard(){
 　布局陷阱合集 【播放清單】
 　屏風馬講解 【影片】
 ```
+
+---
+
+## 第 44 版：YouTube 網址解析補齊
+
+先前只認得 `watch?v=` 與 `youtu.be/` 兩種，直播網址（`/live/ID`）會被判為無效。現已支援所有常見形式：
+
+| 形式 | 範例 |
+|---|---|
+| 一般影片 | `youtube.com/watch?v=ID` |
+| 短網址 | `youtu.be/ID` |
+| **直播** | `youtube.com/live/ID` |
+| Shorts | `youtube.com/shorts/ID` |
+| 嵌入 | `youtube.com/embed/ID` |
+| 播放清單 | `youtube.com/playlist?list=ID` |
+
+也支援 `m.youtube.com`、`music.youtube.com` 子網域，並會自動忽略 `si=` 之類的追蹤參數。
+
+**起始時間會保留**：網址帶 `t=1034`、`t=1h2m3s` 或 `start=245` 都能解析，存入時轉為標準觀看網址並附上時間，點開直接跳到該處。直播與 Shorts 網址一律轉為 `watch?v=` 標準形式以確保播放正常。

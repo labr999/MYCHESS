@@ -2235,7 +2235,7 @@ function addImportedMedia(side, cat, name, media, save){
   const e = ensureCategory(side, cat, '由匯入功能建立的影音分類。');
   const o = {name, desc:'由匯入功能加入的教學影音。', moves:[]};
   if(media.list) o.playlistId = media.list;
-  else if(media.vid) o.videoUrl = 'https://www.youtube.com/watch?v='+media.vid;
+  else if(media.vid) o.videoUrl = youtubeWatchUrl(media);
   e.lines.push(o);
   if(save!==false){
     AppState.library.imported.push({side, cat, name, media});
@@ -2245,12 +2245,35 @@ function addImportedMedia(side, cat, name, media, save){
   }
   return {ok:true};
 }
+/* 解析各種 YouTube 網址形式：
+   watch?v=／youtu.be／live／shorts／embed／v／playlist，含 m. 與 music. 子網域。
+   同時取出播放清單 id 與起始秒數（t／start）。                              */
 function parseYouTube(text){
-  if(!/youtube\.com|youtu\.be/i.test(text)) return null;
-  const list=(text.match(/[?&]list=([\w-]+)/)||[])[1];
-  const vid=(text.match(/(?:[?&]v=|youtu\.be\/)([\w-]{6,})/)||[])[1];
+  const t = String(text||'').trim();
+  if(!/youtube\.com|youtu\.be/i.test(t)) return null;
+  const list = (t.match(/[?&]list=([\w-]+)/) || [])[1];
+  let vid =
+      (t.match(/[?&]v=([\w-]{6,})/) || [])[1]
+   || (t.match(/youtu\.be\/([\w-]{6,})/i) || [])[1]
+   || (t.match(/youtube\.com\/(?:live|shorts|embed|v)\/([\w-]{6,})/i) || [])[1];
   if(!list && !vid) return null;
-  return {list, vid};
+  /* 起始時間：t=1034 或 t=1h2m3s 或 start=1034 */
+  let start = 0;
+  const tm = t.match(/[?&](?:t|start)=([\dhms]+)/i);
+  if(tm){
+    const v = tm[1];
+    if(/^\d+$/.test(v)) start = parseInt(v,10);
+    else {
+      const h=+(v.match(/(\d+)h/)||[])[1]||0, mi=+(v.match(/(\d+)m/)||[])[1]||0, se=+(v.match(/(\d+)s/)||[])[1]||0;
+      start = h*3600+mi*60+se;
+    }
+  }
+  return {list, vid, start};
+}
+/* 統一產生可播放的標準網址（直播／Shorts 等一律轉為 watch?v=） */
+function youtubeWatchUrl(media){
+  if(!media || !media.vid) return '';
+  return 'https://www.youtube.com/watch?v='+media.vid + (media.start ? '&t='+media.start : '');
 }
 
 document.getElementById('btnDoImport').addEventListener('click', ()=>{
