@@ -500,12 +500,19 @@
     </div>
     <div class="imp-msg" id="impMsg"></div>
     <div style="margin-top:10px;padding-top:10px;border-top:1px dashed rgba(201,162,39,.35);">
-      <div style="font-size:.78rem;color:#E8CD7A;font-weight:700;margin-bottom:6px;">🎬 貼上 YouTube 網址（教學影片／播放清單）</div>
-      <input type="text" id="ytName" placeholder="影片名稱（可留空，自動命名）" style="width:100%;margin-bottom:6px;">
-      <input type="text" id="ytUrl" placeholder="https://www.youtube.com/watch?v=… 或 …&list=PL…" style="width:100%;">
-      <div class="imp-row" style="margin-top:6px;">
+      <div style="font-size:.78rem;color:#E8CD7A;font-weight:700;margin-bottom:6px;">🎬 加入 YouTube 教學影片／播放清單</div>
+      <label style="display:block;font-size:.7rem;color:#C9B48A;margin-bottom:3px;">① 影片網址</label>
+      <input type="text" id="ytUrl" placeholder="貼上網址：watch?v=… / youtu.be/… / live/… / playlist?list=…" style="width:100%;">
+      <label style="display:block;font-size:.7rem;color:#C9B48A;margin:7px 0 3px;">② 影片名稱（顯示於選單，留空則自動命名）</label>
+      <input type="text" id="ytName" placeholder="例如：中砲對屏風馬 平炮兌車詳解" style="width:100%;">
+      <label style="display:block;font-size:.7rem;color:#C9B48A;margin:7px 0 3px;">③ 歸入開局分類</label>
+      <div class="imp-row">
+        <select id="ytSide" style="min-width:80px;"><option value="先手">先手</option><option value="後手">後手</option></select>
+        <select id="ytCategory" style="flex:1;min-width:150px;"></select>
+      </div>
+      <div class="imp-row" style="margin-top:8px;">
         <button id="btnImportYt">🎬 加入影音教學</button>
-        <span style="font-size:.68rem;color:#C9B48A;">會加入選單的 🎬 影音教學區，並永久保存</span>
+        <span style="font-size:.68rem;color:#C9B48A;">加入後永久保存，可在選單 🎬 區找到</span>
       </div>
       <div class="imp-msg" id="ytMsg"></div>
     </div>
@@ -2195,6 +2202,23 @@ document.getElementById('btnImport').addEventListener('click', ()=>{
   const showing = panel.classList.toggle('show');
   if(showing) refreshImportCategoryOptions();
 });
+function refreshYtCategoryOptions(){
+  const sel=document.getElementById('ytCategory');
+  if(!sel) return;
+  const side=document.getElementById('ytSide').value;
+  const cur=sel.value;
+  sel.innerHTML='<option value="影音收藏">🎬 影音收藏（未分類）</option>';
+  Object.keys(DATA[side]||{}).forEach(cat=>{
+    if(AppState.library.masterCats[side+'|'+cat]) return;   // 大師棋庫分類不列入
+    const o=document.createElement('option');
+    o.value=cat; o.textContent=cat;
+    sel.appendChild(o);
+  });
+  if(cur && Array.from(sel.options).some(o=>o.value===cur)) sel.value=cur;
+}
+document.getElementById('ytSide').addEventListener('change', refreshYtCategoryOptions);
+refreshYtCategoryOptions();
+
 document.getElementById('btnImportYt').addEventListener('click', ()=>{
   const msg=document.getElementById('ytMsg');
   msg.className='imp-msg';
@@ -2204,13 +2228,8 @@ document.getElementById('btnImportYt').addEventListener('click', ()=>{
     msg.textContent='請貼上有效的 YouTube 網址（youtube.com/watch?v=… 或 youtu.be/…，含 list= 則視為播放清單）。';
     msg.classList.add('err'); return;
   }
-  const catSel=document.getElementById('impCategory').value;
-  let side, cat;
-  if(catSel.includes('|') && !catSel.startsWith('auto')){ [side,cat]=catSel.split('|'); }
-  else {
-    side = catSel==='auto:後手' ? '後手' : (catSel==='auto:先手' ? '先手' : sideSelect.value);
-    cat = '影音收藏';
-  }
+  const side = document.getElementById('ytSide').value;
+  const cat  = document.getElementById('ytCategory').value || '影音收藏';
   const name = document.getElementById('ytName').value.trim()
     || (yt.list ? 'YouTube 播放清單' : 'YouTube 教學影片');
   addImportedMedia(side, cat, name, yt);
@@ -2218,6 +2237,7 @@ document.getElementById('btnImportYt').addEventListener('click', ()=>{
     '　→ 可在選單 🎬 影音教學區找到';
   document.getElementById('ytUrl').value='';
   document.getElementById('ytName').value='';
+  refreshYtCategoryOptions();
   /* 直接跳到剛加入的影音 */
   sideSelect.value=side;
   populateCategories();
