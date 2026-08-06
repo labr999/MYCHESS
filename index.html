@@ -270,7 +270,21 @@ select.field{appearance:auto}
       </div>
     </div>
     <div class="card" id="importCard">
-      <h3>📋 匯入棋譜（自動分類）</h3>
+      <h3>📋 匯入棋譜</h3>
+      <div style="display:flex;gap:6px;margin-bottom:12px">
+        <button id="impModeNormal" class="imp-mode active" style="flex:1;padding:9px;border:none;border-radius:10px;font-size:.82rem;font-weight:600;cursor:pointer;background:var(--primary);color:#fff">一般棋譜</button>
+        <button id="impModeMaster" class="imp-mode" style="flex:1;padding:9px;border:none;border-radius:10px;font-size:.82rem;font-weight:600;cursor:pointer;background:var(--surface-variant);color:var(--on-surface-variant)">👑 大師對局</button>
+      </div>
+      <div id="masterFields" style="display:none">
+        <div style="display:flex;gap:8px">
+          <input class="field" type="text" id="impRed" placeholder="紅方棋手" style="flex:1">
+          <input class="field" type="text" id="impBlack" placeholder="黑方棋手" style="flex:1">
+        </div>
+        <div style="display:flex;gap:8px">
+          <input class="field" type="text" id="impYear" placeholder="年份，如 1974" style="flex:1">
+          <input class="field" type="text" id="impEvent" placeholder="比賽名稱" style="flex:2">
+        </div>
+      </div>
       <input class="field" type="text" id="impName" placeholder="棋譜名稱（可留空自動命名）">
       <textarea class="field" id="impText" rows="4" placeholder="貼上棋譜文字，如：1.炮二平五 馬2進3 2.馬二進三 炮2平1 …（簡繁體、含回合數皆可）"></textarea>
       <select class="field" id="impCategory"><option value="auto">🤖 自動分類</option></select>
@@ -357,6 +371,7 @@ function demo(name, desc, moves){ return {name, desc, moves}; }
 function placeholder(){ return {name:"尚未收錄棋譜", desc:"此開局的完整棋譜尚未收錄。可上傳東萍象棋網、吳氏梅花譜或吾愛象棋教學的棋譜文字檔／PDF，我可以協助整理並加入此分類。", moves:[]}; }
 function video(name, url, desc){ return {name, desc: desc || "此為吾愛象棋教學影片，尚未附加逐步棋譜動畫，可點擊下方「觀看教學影片」直接觀看完整講解。", moves:[], videoUrl:url}; }
 function playlist(name, listId, desc){ return {name, desc: desc || "此為完整教學播放清單，可在播放器右上角開啟清單面板切換每一部影片。", moves:[], playlistId:listId}; }
+function masterGame(name, desc, list){ const o=demoFromNotation(name, desc, list); o.master=true; return o; }
 
 /* ---------- 中文記譜自動解析引擎 ---------- */
 function pieceCategory(ch){
@@ -473,24 +488,28 @@ const DATA = {
         playlist("先手中砲對列砲專題清單（4部）", "PLIoeW_p5UU0irAoufXviGezVj97HxRInj"),
         demoFromNotation("列手砲基本定式（30步）",
         "列炮＝黑方炮2平5（與紅炮不同方向，故名「列」）。雙方按部就班出動車馬，形成小列手炮對峙陣型。（已依網路棋譜資料修正：先前版本誤用炮8平5，那是順炮。）（前12步為定式主線，第13步起為內建引擎推演之參考續著）",
-        ["炮二平五","炮2平5","馬二進三","馬8進7","車一平二","車9平8","馬八進七","馬2進3","車九平八","車1平2","兵三進一","卒3進1","車二進六","車2進6","車二平三","車2平3","馬七退五","馬7退5","炮五進四","馬3進5","車三平五","車3平2","相七進五","砲5平2","馬五退七","砲8平7","炮八平七","車2平3","車八進七","象7進5"]) ]
+        ["炮二平五","炮2平5","馬二進三","馬8進7","車一平二","車9平8","馬八進七","馬2進3","車九平八","車1平2","兵三進一","卒3進1","車二進六","車2進6","車二平三","車2平3","馬七退五","馬7退5","炮五進四","馬3進5","車三平五","車3平2","相七進五","砲5平2","馬五退七","砲8平7","炮八平七","車2平3","車八進七","象7進5"]),
+        demoFromNotation("攻殺變化：七路炮急攻","紅方炮八進四轉七路強攻，較兇悍的對攻路線（引擎推演參考變化）。",["炮二平五","炮2平5","馬二進三","馬2進3","車一平二","車1平2","炮八進四","卒3進1","炮八平三","馬8進9","車二進七","車2進6","兵九進一","車2平3","相七進九","車3平1","炮五平七","車1平3","兵三進一","砲5進4","車二平七","馬9進7","兵三進一","馬7進5","馬八進六","車3進1","馬三進五","馬5進4"]) ]
     },
     "中砲對半途列砲": { intro:"黑方先走屏風馬式布陣，中途突然平中砲轉為列砲對攻，出其不意，屬帶欺騙性的變化型應法。", lines:[
         playlist("先手中砲對半途列砲專題清單（9部）", "PLIoeW_p5UU0hnRhphmaNZRkV841rcw922"),
         demoFromNotation("半途列砲基本定式（30步）","黑方先封車再突然炮2平5轉列砲（依網路棋譜：左炮封車轉半途列炮），攻其不備的兇悍變着。（前12步為定式主線，第13步起為內建引擎推演之參考續著）",
-        ["炮二平五","馬8進7","馬二進三","車9平8","車一平二","炮8進4","兵三進一","炮2平5","馬八進七","馬2進3","車九平八","車1平2","馬三進四","砲8進1","馬四進六","馬3退5","馬六進四","砲5進4","馬七進五","馬5進6","炮八平二","車2進9","馬五退七","象3進5","馬七退八","馬6進7","炮五平三","後馬退5","炮二進二","馬7進6"]) ] },
+        ["炮二平五","馬8進7","馬二進三","車9平8","車一平二","炮8進4","兵三進一","炮2平5","馬八進七","馬2進3","車九平八","車1平2","馬三進四","砲8進1","馬四進六","馬3退5","馬六進四","砲5進4","馬七進五","馬5進6","炮八平二","車2進9","馬五退七","象3進5","馬七退八","馬6進7","炮五平三","後馬退5","炮二進二","馬7進6"]),
+        demoFromNotation("攻殺變化：半途列炮對攻","黑方轉列炮後雙方中路激烈對攻（引擎推演參考變化）。",["炮二平五","馬8進7","馬二進三","車9平8","車一平二","炮8進4","兵七進一","炮2平5","馬八進七","馬2進3","兵三進一","砲8平7","車二平一","車8進4","馬七進八","卒3進1","炮八平七","馬3退5","炮七進三","砲5平3","馬八進七","砲3進2","兵七進一","車8平3","馬七進六","車3平4","馬六退五","馬7進5"]) ] },
     "中砲對順手砲": { intro:"黑方以同側砲移至中路應戰，攻防節奏與列手砲不同，較講究先手速度。", lines:[
         demoFromNotation("順炮直車兩頭蛇對雙橫車（30步）","順炮目前最流行的主流陣型：紅方直車配兩頭蛇（三、七兵齊挺），黑方以雙橫車應對。（前12步為定式主線，第13步起為內建引擎推演之參考續著）",
         ["炮二平五","炮8平5","馬二進三","馬8進7","車一平二","車9進1","兵三進一","車9平4","兵七進一","馬2進3","馬八進七","車1進1","車二進六","砲5退1","馬三進四","車4進7","車二平三","車4平3","馬七進六","砲5進5","仕六進五","車3退3","馬六進五","馬3進5","馬四進五","馬7退5","兵三進一","卒9進1","兵三平二","卒9進1"]) ] },
     "中砲對單提馬": { intro:"黑方僅提一隻邊馬，陣型較靈活但左翼子力發展較慢。", lines:[
         playlist("先手中砲對單提馬專題清單（14部）", "PLIoeW_p5UU0ge7mfoTXqSHkhmM74yZoHb"),
         demoFromNotation("單提馬基本定式（30步）","黑方一正馬一邊馬的單提馬陣型，出車快速、橫車靈活，但中路稍弱。（前12步為定式主線，第13步起為內建引擎推演之參考續著）",
-        ["炮二平五","馬2進3","馬二進三","馬8進9","車一平二","車9平8","馬八進七","車1進1","兵七進一","車1平4","車九平八","車4進3","炮八平九","砲2進2","車二進六","砲8平7","車二平一","砲7進4","馬三退五","卒3進1","兵七進一","車4平3","馬七進六","砲2平1","炮九平七","砲7平1","車八進三","前砲進2","馬六進五","馬3進5"]) ] },
+        ["炮二平五","馬2進3","馬二進三","馬8進9","車一平二","車9平8","馬八進七","車1進1","兵七進一","車1平4","車九平八","車4進3","炮八平九","砲2進2","車二進六","砲8平7","車二平一","砲7進4","馬三退五","卒3進1","兵七進一","車4平3","馬七進六","砲2平1","炮九平七","砲7平1","車八進三","前砲進2","馬六進五","馬3進5"]),
+        demoFromNotation("攻殺變化：五七炮攻單提馬","紅方五七炮陣型針對單提馬中路較弱處施壓（引擎推演參考變化）。",["炮二平五","馬2進3","馬二進三","馬8進9","炮八平七","車1進1","車一平二","車1平4","兵三進一","卒3進1","兵七進一","車4進3","馬三進四","車4平6","兵七進一","車6平3","馬四進五","馬3進5","車二進七","砲2進6","炮五進四","車3進3","車二平五","士4進5","車五平一","將5平4","車一進二","車3退1"]) ] },
     "中砲對鴛鴦砲": { intro:"黑方雙砲並列於同一線上，攻擊力集中，但陣型較呆板缺乏彈性。", lines:[placeholder()] },
     "中砲對反宮馬": { intro:"黑方馬走象位形成反宮馬結構，變化細膩，屬穩健型應法。", lines:[
         playlist("反宮馬專題播放清單（30部）", "PLIoeW_p5UU0hwVFIIxu3HrkXgjjHrhR3u"),
         demoFromNotation("五七炮進三兵對反宮馬（30步）","反宮馬（夾砲屏風）標準陣型：黑方士角砲配雙正馬，紅方以五七炮進三兵體系攻堅。（前12步為定式主線，第13步起為內建引擎推演之參考續著）",
-        ["炮二平五","馬2進3","馬二進三","炮8平6","車一平二","馬8進7","兵三進一","卒3進1","馬八進九","象7進5","炮八平七","車1平2","馬三進四","砲2平1","馬四進五","砲1進4","馬五進七","砲6平3","馬九退七","砲1平5","仕六進五","砲3進4","炮七進三","車2進4","馬七進六","馬7進5","炮七退一","卒1進1","帥五平六","馬5進6"]) ] },
+        ["炮二平五","馬2進3","馬二進三","炮8平6","車一平二","馬8進7","兵三進一","卒3進1","馬八進九","象7進5","炮八平七","車1平2","馬三進四","砲2平1","馬四進五","砲1進4","馬五進七","砲6平3","馬九退七","砲1平5","仕六進五","砲3進4","炮七進三","車2進4","馬七進六","馬7進5","炮七退一","卒1進1","帥五平六","馬5進6"]),
+        demoFromNotation("攻殺變化：進三兵七路炮","紅方進三兵配七路炮的另一攻堅路線（引擎推演參考變化）。",["炮二平五","馬2進3","馬二進三","炮8平6","兵三進一","卒3進1","馬八進九","馬8進7","炮八平七","車1平2","兵七進一","馬3進2","兵七進一","馬2進1","炮七退一","砲6平5","馬九進七","砲2平1","炮七平五","馬1進2","馬七退九","車2進7","前炮進四","士4進5","馬三進四","車2平4","相七進五","馬7進5"]) ] },
     "先手反宮馬（士角砲開局）": { intro:"你執紅方時以反宮馬（士角砲）體系開局，出子含蓄、結構堅實，以柔克剛的先手布陣。", lines:[
         playlist("先手反攻馬專題清單（18部）", "PLIoeW_p5UU0jFfi6hg_IJ0-ureXGtbrdk")
       ] },
@@ -532,7 +551,8 @@ const DATA = {
           {from:[1,2],to:[4,2],notation:"炮八平五"},
           {from:[6,0],to:[4,2],notation:"象7進5"},
           {from:[1,9],to:[1,3],notation:"車八進六"}
-        ]) ] },
+        ]),
+        demoFromNotation("攻殺變化：沉底炮攻三步虎","紅方以炮八進四沉底炮壓制，攻擊黑方右翼（引擎推演參考變化）。",["炮二平五","馬2進3","馬二進三","炮2平1","車一平二","車1平2","炮八進四","車2進4","炮八平三","車2平7","炮三平七","車7進2","炮七進三","士4進5","炮五平七","砲8平7","後炮進五","車7進1","相七進五","車7退1","前炮平八","將5平4","炮七進二","將4進1","炮七平三","砲7進7","車二平三","車7進3"]) ] },
     "中砲五七炮進三兵": { intro:"紅方採五七炮並挺三兵的特定陣型組合，出子次序講究，變化較為複雜。", lines:[
         playlist("五七炮進三兵專題清單（49部）", "PLIoeW_p5UU0g8gNkw7F9Zm1GmctTZYCM7")
       ] },
@@ -561,7 +581,10 @@ const DATA = {
       intro:"黑方雙馬並進形成屏風馬結構，是最經典、最常見也最穩健的應法。",
       lines:[ demoFromNotation("中炮過河車對屏風馬平炮兌車（30步）",
         "中炮對屏風馬最經典的主流大線：紅車過河施壓，黑方平炮兌車化解——初學者必學、大師實戰最常見的基礎開局。（前12步為定式主線，第13步起為內建引擎推演之參考續著）",
-        ["炮二平五","馬8進7","馬二進三","車9平8","車一平二","馬2進3","兵七進一","卒7進1","車二進六","炮8平9","車二平三","炮9退1","炮八平七","砲9平7","車三平四","馬3退5","車四進二","車8進1","炮七進四","砲2平3","馬八進七","卒1進1","馬七進六","砲3退1","車四退一","象3進5","馬六進五","馬7退9","炮七平一","卒7進1"]) ]
+        ["炮二平五","馬8進7","馬二進三","車9平8","車一平二","馬2進3","兵七進一","卒7進1","車二進六","炮8平9","車二平三","炮9退1","炮八平七","砲9平7","車三平四","馬3退5","車四進二","車8進1","炮七進四","砲2平3","馬八進七","卒1進1","馬七進六","砲3退1","車四退一","象3進5","馬六進五","馬7退9","炮七平一","卒7進1"]),
+        masterGame("楊官璘 對 胡榮華（布局階段）","1962年名局，中炮過河車對屏風馬平炮兌車的布局演變。此為布局階段著法重建；完整對局棋譜可由 Thor 提供東萍棋譜文字後補入。",["炮二平五","馬8進7","馬二進三","車9平8","車一平二","馬2進3","兵七進一","卒7進1","車二進六","炮8平9","車二平三","炮9退1","車三平四","馬7進8"]),
+        demoFromNotation("攻殺變化：屏風馬兩頭蛇","你執黑方以兩頭蛇反制紅方過河車（引擎推演參考變化）。",["炮二平五","馬8進7","馬二進三","車9平8","車一平二","馬2進3","兵七進一","卒7進1","車二進六","馬7進6","車二平一","馬6進7","炮五進四","卒7進1","炮八平七","馬3進5","車一平五","砲8平5","相七進五","卒7平6","車五平七","卒1進1","車七進三","車1平3","炮七進七","士4進5","兵七進一","砲5平7"]),
+        demoFromNotation("攻殺變化：過河車進三線壓馬","紅方過河車深入壓制黑方左馬，走向另一路攻勢（引擎推演參考變化）。",["炮二平五","馬8進7","馬二進三","車9平8","車一平二","馬2進3","兵七進一","卒7進1","車二進六","炮8平9","車二進三","馬7退8","炮八平七","砲9平7","相三進一","象7進5","炮七進四","卒9進1","馬八進七","砲7進4","炮七平六","象3進1","車九平八","砲2進4","馬七進六","馬8進6","馬六進四","砲7平8"]) ]
     },
     "中砲對仙人指路": { intro:"一方以邊兵（卒）先行試探對方應手，靈活多變，變化極為豐富。", lines:[placeholder()] },
     "左砲封車": { intro:"黑方左砲進四封鎖紅方二路直車，牽制對方出子速度，屬於較剛烈的反制型佈局（紅方視角應法）。", lines:[
@@ -630,14 +653,16 @@ const DATA = {
     "後手反宮馬": { intro:"你執黑方時以反宮馬（士角砲）應對紅方中炮，結構穩健、變化細膩，是經典的後手防禦體系。", lines:[
         playlist("後手反攻馬專題清單（9部）", "PLIoeW_p5UU0jAKGGigu_sp8TbkW4WN-3s"),
         demoFromNotation("反宮馬基本定式（後手視角，30步）","你執黑方以士角砲＋雙正馬構築反宮馬，剛柔並濟的經典防反體系。",
-        ["炮二平五","馬2進3","馬二進三","炮8平6","車一平二","馬8進7","兵三進一","卒3進1","馬八進九","象7進5","炮八平七","車1平2","馬三進四","砲2平1","馬四進五","砲1進4","馬五進七","砲6平3","馬九退七","砲1平5","仕六進五","砲3進4","炮七進三","車2進4","馬七進六","馬7進5","炮七退一","卒1進1","帥五平六","馬5進6"]) ] },
+        ["炮二平五","馬2進3","馬二進三","炮8平6","車一平二","馬8進7","兵三進一","卒3進1","馬八進九","象7進5","炮八平七","車1平2","馬三進四","砲2平1","馬四進五","砲1進4","馬五進七","砲6平3","馬九退七","砲1平5","仕六進五","砲3進4","炮七進三","車2進4","馬七進六","馬7進5","炮七退一","卒1進1","帥五平六","馬5進6"]),
+        demoFromNotation("攻殺變化：反宮馬進3卒","你執黑方反宮馬配挺3卒的積極變化（引擎推演參考變化）。",["炮二平五","馬2進3","馬二進三","炮8平6","兵三進一","卒3進1","馬八進九","馬8進7","炮八平七","車1平2","兵七進一","馬3進2","兵七進一","馬2進1","炮七退一","砲6平5","馬九進七","砲2平1","炮七平五","馬1進2","馬七退九","車2進7","前炮進四","士4進5","馬三進四","車2平4","相七進五","馬7進5"]) ] },
     "後手對中炮牛頭滾": { intro:"黑方以「牛頭滾」手法應對紅方中炮，是較少見但頗具特色的變化型應法。", lines:[
         playlist("後手牛頭滾專題清單（49部）", "PLIoeW_p5UU0iTubnd8Z6apBNbt-UptuDI")
       ] },
     "後手左砲封車": { intro:"黑方以左砲封鎖紅方直車，牽制對方出子節奏，屬於較剛烈的反制型下法。", lines:[
         playlist("後手左砲封車專題清單（22部）", "PLIoeW_p5UU0hFHU_GMKHyCE3xafI_45nl"),
         demoFromNotation("左砲封車基本定式（後手視角，30步）","你執黑方炮8進4封鎖紅方二路車，逼紅方調整出子計畫，搶奪布局主導權。",
-        ["炮二平五","馬8進7","馬二進三","車9平8","車一平二","炮8進4","兵三進一","馬2進3","馬八進七","象3進5","車九平八","車1平2","炮八進七","馬3退2","車八進七","馬2進4","車八平六","將5進1","炮五平六","馬4退2","兵七進一","砲8平7","車二平一","將5退1","馬七進六","士6進5","車六平八","卒7進1","車八進二","卒7進1"]) ] }
+        ["炮二平五","馬8進7","馬二進三","車9平8","車一平二","炮8進4","兵三進一","馬2進3","馬八進七","象3進5","車九平八","車1平2","炮八進七","馬3退2","車八進七","馬2進4","車八平六","將5進1","炮五平六","馬4退2","兵七進一","砲8平7","車二平一","將5退1","馬七進六","士6進5","車六平八","卒7進1","車八進二","卒7進1"]),
+        demoFromNotation("攻殺變化：封車進3卒","你執黑方封車後挺3卒活馬反擊（引擎推演參考變化）。",["炮二平五","馬8進7","馬二進三","車9平8","車一平二","炮8進4","兵三進一","卒3進1","馬八進七","馬2進3","炮八進四","砲8平7","炮八平七","車8進9","馬三退二","卒1進1","馬二進一","砲7進1","馬七退五","砲2進5","兵一進一","砲2平4","馬五進三","砲4平7","馬一進二","砲7平6","馬二進三","象3進5"]) ] }
   }
 };
 
@@ -1087,14 +1112,27 @@ function persistImports(){
   }catch(e){ /* 隱私模式或空間不足時略過 */ }
 }
 
-function addImportedGame(side, cat, name, tokens, save){
+function addImportedGame(side, cat, name, tokens, save, meta){
   let moves;
   try{ moves = buildMovesFromNotation(tokens); }
   catch(e){ return {ok:false, err:e.message}; }
   const entry = ensureCategory(side, cat);
-  entry.lines.push({name, desc:'由匯入棋譜功能加入，共 '+tokens.length+' 步（'+Math.ceil(tokens.length/2)+' 回合）。', moves});
+  const rounds=Math.ceil(tokens.length/2);
+  let desc, line;
+  if(meta && meta.master){
+    const bits=[];
+    if(meta.year)bits.push(meta.year+'年');
+    if(meta.event)bits.push(meta.event);
+    if(meta.red||meta.black)bits.push((meta.red||'紅方')+' 先行 對 '+(meta.black||'黑方'));
+    desc=(bits.join('｜')||'大師對局')+'　共 '+tokens.length+' 步。';
+    line={name, desc, moves, master:true};
+  } else {
+    desc='由匯入棋譜功能加入，共 '+tokens.length+' 步（'+rounds+' 回合）。';
+    line={name, desc, moves};
+  }
+  entry.lines.push(line);
   if(save!==false){
-    importedGames.push({side, cat, name, tokens});
+    importedGames.push({side, cat, name, tokens, meta:meta||null});
     persistImports();
   }
   return {ok:true};
@@ -1250,14 +1288,18 @@ function lineTag(l){if(l.moves&&l.moves.length)return '文字棋譜';if(l.playli
 function buildLineList(){
   const list=document.getElementById('lineList');list.innerHTML='';
   const entry=DATA[curSide][curCat];
-  // 分成兩組：可播放的文字棋譜、影片/播放清單
-  const scores=[], videos=[];
-  entry.lines.forEach((l,i)=>{ if(l.moves&&l.moves.length)scores.push([l,i]); else videos.push([l,i]); });
+  // 三組：定式/變化文字棋譜、大師對局、影片/播放清單
+  const scores=[], masters=[], videos=[];
+  entry.lines.forEach((l,i)=>{
+    if(l.master)masters.push([l,i]);
+    else if(l.moves&&l.moves.length)scores.push([l,i]);
+    else videos.push([l,i]);
+  });
 
   function makeItem(l,i){
     const it=document.createElement('div');it.className='line-item';
-    it.style.borderLeftColor=(l.moves&&l.moves.length)?'var(--primary)':(l.playlistId?'var(--accent)':'var(--outline)');
-    it.innerHTML=`<div class="ln">${l.name} <span style="font-size:.68rem;color:var(--on-surface-variant)">【${lineTag(l)}】</span></div><div class="ld">${entry.intro}</div>`;
+    it.style.borderLeftColor=l.master?'#7B4FA0':(l.moves&&l.moves.length)?'var(--primary)':(l.playlistId?'var(--accent)':'var(--outline)');
+    it.innerHTML=`<div class="ln">${l.name} <span style="font-size:.68rem;color:var(--on-surface-variant)">【${lineTag(l)}】</span></div><div class="ld">${l.desc||entry.intro}</div>`;
     it.addEventListener('click',()=>{loadLine(curSide,curCat,i);gotoTab('home');});
     return it;
   }
@@ -1268,9 +1310,10 @@ function buildLineList(){
     return h;
   }
 
-  if(scores.length){ list.appendChild(makeHeader('文字棋譜（可播放走子）','♟')); scores.forEach(([l,i])=>list.appendChild(makeItem(l,i))); }
+  if(scores.length){ list.appendChild(makeHeader('文字棋譜（定式／變化）','♟')); scores.forEach(([l,i])=>list.appendChild(makeItem(l,i))); }
+  if(masters.length){ list.appendChild(makeHeader('大師對局','👑')); masters.forEach(([l,i])=>list.appendChild(makeItem(l,i))); }
   if(videos.length){ list.appendChild(makeHeader('教學影片 / 播放清單','▶')); videos.forEach(([l,i])=>list.appendChild(makeItem(l,i))); }
-  if(!scores.length && !videos.length){ list.innerHTML='<div class="sr-empty" style="padding:16px 4px">此分類尚未收錄內容。</div>'; }
+  if(!scores.length && !masters.length && !videos.length){ list.innerHTML='<div class="sr-empty" style="padding:16px 4px">此分類尚未收錄內容。</div>'; }
 }
 
 /* ============ 載入棋譜/影片 ============ */
@@ -1523,6 +1566,22 @@ document.getElementById('savedToggle').addEventListener('click',()=>{
   document.getElementById('savedBody').classList.toggle('open');
   document.getElementById('savedChev').classList.toggle('rot');
 });
+let impMasterMode=false;
+document.getElementById('impModeNormal').addEventListener('click',()=>{
+  impMasterMode=false;
+  document.getElementById('impModeNormal').style.cssText='flex:1;padding:9px;border:none;border-radius:10px;font-size:.82rem;font-weight:600;cursor:pointer;background:var(--primary);color:#fff';
+  document.getElementById('impModeMaster').style.cssText='flex:1;padding:9px;border:none;border-radius:10px;font-size:.82rem;font-weight:600;cursor:pointer;background:var(--surface-variant);color:var(--on-surface-variant)';
+  document.getElementById('masterFields').style.display='none';
+  document.getElementById('importCard').querySelector('h3').textContent='📋 匯入棋譜';
+});
+document.getElementById('impModeMaster').addEventListener('click',()=>{
+  impMasterMode=true;
+  document.getElementById('impModeMaster').style.cssText='flex:1;padding:9px;border:none;border-radius:10px;font-size:.82rem;font-weight:600;cursor:pointer;background:#7B4FA0;color:#fff';
+  document.getElementById('impModeNormal').style.cssText='flex:1;padding:9px;border:none;border-radius:10px;font-size:.82rem;font-weight:600;cursor:pointer;background:var(--surface-variant);color:var(--on-surface-variant)';
+  document.getElementById('masterFields').style.display='block';
+  document.getElementById('importCard').querySelector('h3').textContent='👑 匯入大師對局';
+});
+
 document.getElementById('btnDoImport').addEventListener('click',()=>{
   const msg=document.getElementById('impMsg');msg.className='imp-msg';
   const raw=document.getElementById('impText').value.trim();
@@ -1533,11 +1592,26 @@ document.getElementById('btnDoImport').addEventListener('click',()=>{
   const ch=document.getElementById('impCategory').value;
   if(ch==='auto'){const r=autoClassify(tokens);if(r){side=r.side;cat=r.cat;why=r.why;}else{side='先手';cat='匯入棋譜（未分類）';why='未能判斷，放入未分類';}}
   else{[side,cat]=ch.split('|');}
-  let name=document.getElementById('impName').value.trim()||'匯入棋譜（'+Math.ceil(tokens.length/2)+'回合）#'+(importedGames.length+1);
-  const r=addImportedGame(side,cat,name,tokens);
+
+  let meta=null, name;
+  if(impMasterMode){
+    const red=document.getElementById('impRed').value.trim();
+    const black=document.getElementById('impBlack').value.trim();
+    const year=document.getElementById('impYear').value.trim();
+    const event=document.getElementById('impEvent').value.trim();
+    meta={master:true, red, black, year, event};
+    name=document.getElementById('impName').value.trim() ||
+         ((red||black)?(red||'紅')+' 對 '+(black||'黑'):'大師對局') + (year?('（'+year+'）'):'');
+  } else {
+    name=document.getElementById('impName').value.trim()||'匯入棋譜（'+Math.ceil(tokens.length/2)+'回合）#'+(importedGames.length+1);
+  }
+
+  const r=addImportedGame(side,cat,name,tokens,true,meta);
   if(!r.ok){msg.textContent='解析失敗：'+r.err;msg.classList.add('err');return;}
-  msg.innerHTML='✔ 匯入成功，分類至 <b>'+side+'｜'+cat+'</b>（'+why+'）';msg.classList.add('ok');
+  const tagTxt=impMasterMode?'👑 大師對局':'棋譜';
+  msg.innerHTML='✔ '+tagTxt+'匯入成功，分類至 <b>'+side+'｜'+cat+'</b>（'+why+'）';msg.classList.add('ok');
   document.getElementById('impText').value='';document.getElementById('impName').value='';
+  if(impMasterMode){['impRed','impBlack','impYear','impEvent'].forEach(id=>document.getElementById(id).value='');}
   refreshImportCats();
   curSide=side;curCat=cat;loadLine(side,cat,DATA[side][cat].lines.length-1);gotoTab('home');
 });
@@ -1585,7 +1659,7 @@ function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t
 
 /* ============ 啟動 ============ */
 refreshImportCats();
-(function(){try{const raw=localStorage.getItem('xiangqi_imported_games');if(raw){const saved=JSON.parse(raw);saved.forEach(g=>addImportedGame(g.side,g.cat,g.name,g.tokens,false));importedGames=saved;refreshImportCats();}}catch(e){}})();
+(function(){try{const raw=localStorage.getItem('xiangqi_imported_games');if(raw){const saved=JSON.parse(raw);saved.forEach(g=>addImportedGame(g.side,g.cat,g.name,g.tokens,false,g.meta||null));importedGames=saved;refreshImportCats();}}catch(e){}})();
 // 預設載入第一個開局
 curCat=Object.keys(DATA['先手'])[0];
 loadLine('先手',curCat,0);
