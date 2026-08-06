@@ -208,11 +208,18 @@ select.field{appearance:auto}
       <div class="rec-live" id="recLive">
         <div class="rl-top"><span class="dot"></span><b id="rlMode">記譜中</b><span id="rlCount">0 步</span></div>
         <div class="rl-best" id="rlBest">引擎分析中…</div>
+        <div class="moves" id="recMoves" style="margin:8px 0;max-height:96px;overflow-y:auto"></div>
         <div class="rl-btns">
           <button id="btnLiveUndo">悔棋</button>
           <button id="btnLiveSave">儲存</button>
           <button class="stop" id="btnLiveStop">結束記譜</button>
         </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="collapse-head" id="movesToggle"><h3 style="margin:0">♟ 記譜歷史</h3><span class="chev rot" id="movesChev">▼</span></div>
+      <div class="collapse-body open" id="movesBody">
+        <div class="moves" id="homeMoves" style="padding-top:10px"></div>
       </div>
     </div>
     <div class="card">
@@ -254,6 +261,12 @@ select.field{appearance:auto}
     <div class="card">
       <h3>♟ 棋譜著法</h3>
       <div class="moves" id="movesList"><span class="sr-empty">選擇開局或開始記譜後，著法會顯示在這裡。</span></div>
+    </div>
+    <div class="card" id="savedCard">
+      <div class="collapse-head" id="savedToggle"><h3 style="margin:0">💾 已儲存棋譜 <span id="savedCount" style="font-size:.72rem;color:var(--on-surface-variant);font-weight:400"></span></h3><span class="chev rot" id="savedChev">▼</span></div>
+      <div class="collapse-body open" id="savedBody">
+        <div id="savedList" style="padding-top:10px"></div>
+      </div>
     </div>
     <div class="card" id="importCard">
       <h3>📋 匯入棋譜（自動分類）</h3>
@@ -1069,10 +1082,8 @@ function refreshImportCategoryOptions(){
 let importedGames = [];
 function persistImports(){
   try{
-    if(window.storage && window.storage.set){
-      window.storage.set('xiangqi_imported_games', JSON.stringify(importedGames));
-    }
-  }catch(e){ /* 無持久儲存環境，僅保留於本次瀏覽 */ }
+    localStorage.setItem('xiangqi_imported_games', JSON.stringify(importedGames));
+  }catch(e){ /* 隱私模式或空間不足時略過 */ }
 }
 
 function addImportedGame(side, cat, name, tokens, save){
@@ -1179,16 +1190,20 @@ function renderBoard(){
 }
 
 function renderMovesList(){
-  const wrap=document.getElementById('movesList');
   const arr=recording?recordedMoves:currentMoves;
   const idx=recording?recordedMoves.length:currentIndex;
-  if(arr.length===0){wrap.innerHTML='<span class="sr-empty">選擇開局或開始記譜後，著法會顯示在這裡。</span>';return;}
-  wrap.innerHTML='';
-  arr.forEach((mv,i)=>{
-    const c=document.createElement('span');c.className='move-chip'+((i===idx-1)?' active':'');
-    c.textContent=(i+1)+'. '+mv.notation;
-    if(!recording)c.addEventListener('click',()=>{currentIndex=i+1;renderBoard();});
-    wrap.appendChild(c);
+  const targets=[document.getElementById('movesList'), document.getElementById('homeMoves')];
+  if(recording)targets.push(document.getElementById('recMoves'));
+  targets.forEach(wrap=>{
+    if(!wrap)return;
+    if(arr.length===0){wrap.innerHTML='<span class="sr-empty">選擇開局或開始記譜後，著法會顯示在這裡。</span>';return;}
+    wrap.innerHTML='';
+    arr.forEach((mv,i)=>{
+      const c=document.createElement('span');c.className='move-chip'+((i===idx-1)?' active':'');
+      c.textContent=(i+1)+'. '+mv.notation;
+      if(!recording)c.addEventListener('click',()=>{currentIndex=i+1;renderBoard();});
+      wrap.appendChild(c);
+    });
   });
 }
 
@@ -1438,7 +1453,48 @@ document.getElementById('btnSearchOpen').addEventListener('click',()=>{
 function refreshImportCats(){
   const sel=document.getElementById('impCategory');sel.innerHTML='<option value="auto">🤖 自動分類</option>';
   Object.keys(DATA).forEach(side=>Object.keys(DATA[side]).forEach(cat=>{const o=document.createElement('option');o.value=side+'|'+cat;o.textContent=side+'｜'+cat;sel.appendChild(o);}));
+  renderSavedList();
 }
+
+function renderSavedList(){
+  const box=document.getElementById('savedList');
+  const cnt=document.getElementById('savedCount');
+  if(!box)return;
+  cnt.textContent='（共 '+importedGames.length+' 局）';
+  if(importedGames.length===0){box.innerHTML='<span class="sr-empty">尚無匯入或儲存的棋譜。用「先手/後手記譜」記錄後按儲存，或用下方匯入功能加入。</span>';return;}
+  box.innerHTML='';
+  importedGames.forEach((g,i)=>{
+    const d=document.createElement('div');d.className='line-item';d.style.borderLeftColor='var(--accent)';
+    d.innerHTML=`<div class="ln">${g.name}</div><div class="ld">${g.side}｜${g.cat}　${g.tokens.length}步</div>`;
+    const del=document.createElement('button');
+    del.textContent='刪除';del.style.cssText='margin-top:8px;padding:6px 14px;border:none;border-radius:8px;background:var(--surface-variant);color:#B3261E;font-size:.76rem;cursor:pointer';
+    del.addEventListener('click',(ev)=>{ev.stopPropagation();deleteSavedGame(i);});
+    d.addEventListener('click',()=>{
+      // 找到該棋譜在 DATA 中的位置並載入
+      const entry=DATA[g.side][g.cat];
+      const idx=entry?entry.lines.findIndex(l=>l.name===g.name):-1;
+      if(idx>=0){loadLine(g.side,g.cat,idx);gotoTab('home');}
+    });
+    d.appendChild(del);
+    box.appendChild(d);
+  });
+}
+
+function deleteSavedGame(i){
+  const g=importedGames[i];
+  // 從 DATA 移除對應 line
+  const entry=DATA[g.side] && DATA[g.side][g.cat];
+  if(entry){const idx=entry.lines.findIndex(l=>l.name===g.name);if(idx>=0)entry.lines.splice(idx,1);}
+  importedGames.splice(i,1);
+  persistImports();
+  renderSavedList();
+  toast('已刪除棋譜');
+}
+
+document.getElementById('savedToggle').addEventListener('click',()=>{
+  document.getElementById('savedBody').classList.toggle('open');
+  document.getElementById('savedChev').classList.toggle('rot');
+});
 document.getElementById('btnDoImport').addEventListener('click',()=>{
   const msg=document.getElementById('impMsg');msg.className='imp-msg';
   const raw=document.getElementById('impText').value.trim();
@@ -1480,6 +1536,10 @@ document.getElementById('descToggle').addEventListener('click',()=>{
   document.getElementById('descBody').classList.toggle('open');
   document.getElementById('descChev').classList.toggle('rot');
 });
+document.getElementById('movesToggle').addEventListener('click',()=>{
+  document.getElementById('movesBody').classList.toggle('open');
+  document.getElementById('movesChev').classList.toggle('rot');
+});
 
 /* ============ 設定 ============ */
 document.getElementById('budgetSel').addEventListener('change',e=>{window.__engineBudget=parseInt(e.target.value,10);});
@@ -1497,7 +1557,7 @@ function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t
 
 /* ============ 啟動 ============ */
 refreshImportCats();
-(async function(){try{if(window.storage&&window.storage.get){const r=await window.storage.get('xiangqi_imported_games');if(r&&r.value){const saved=JSON.parse(r.value);saved.forEach(g=>addImportedGame(g.side,g.cat,g.name,g.tokens,false));importedGames=saved;refreshImportCats();}}}catch(e){}})();
+(function(){try{const raw=localStorage.getItem('xiangqi_imported_games');if(raw){const saved=JSON.parse(raw);saved.forEach(g=>addImportedGame(g.side,g.cat,g.name,g.tokens,false));importedGames=saved;refreshImportCats();}}catch(e){}})();
 // 預設載入第一個開局
 curCat=Object.keys(DATA['先手'])[0];
 loadLine('先手',curCat,0);
