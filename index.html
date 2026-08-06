@@ -196,6 +196,7 @@ select.field{appearance:auto}
         <h2 id="boardTitle">象棋開局譜</h2>
         <span class="turn-badge" id="turnBadge">—</span>
       </div>
+      <div id="lineSwitch" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px"></div>
       <div class="board-wrap"><svg id="board" viewBox="0 0 544 642" xmlns="http://www.w3.org/2000/svg"></svg></div>
       <div class="board-controls">
         <button class="btn" id="btnFirst">|«</button>
@@ -1249,13 +1250,27 @@ function lineTag(l){if(l.moves&&l.moves.length)return '文字棋譜';if(l.playli
 function buildLineList(){
   const list=document.getElementById('lineList');list.innerHTML='';
   const entry=DATA[curSide][curCat];
-  entry.lines.forEach((l,i)=>{
+  // 分成兩組：可播放的文字棋譜、影片/播放清單
+  const scores=[], videos=[];
+  entry.lines.forEach((l,i)=>{ if(l.moves&&l.moves.length)scores.push([l,i]); else videos.push([l,i]); });
+
+  function makeItem(l,i){
     const it=document.createElement('div');it.className='line-item';
     it.style.borderLeftColor=(l.moves&&l.moves.length)?'var(--primary)':(l.playlistId?'var(--accent)':'var(--outline)');
     it.innerHTML=`<div class="ln">${l.name} <span style="font-size:.68rem;color:var(--on-surface-variant)">【${lineTag(l)}】</span></div><div class="ld">${entry.intro}</div>`;
     it.addEventListener('click',()=>{loadLine(curSide,curCat,i);gotoTab('home');});
-    list.appendChild(it);
-  });
+    return it;
+  }
+  function makeHeader(txt,icon){
+    const h=document.createElement('div');
+    h.style.cssText='font-size:.78rem;font-weight:700;color:var(--on-surface-variant);margin:14px 4px 6px;letter-spacing:1px';
+    h.textContent=icon+' '+txt;
+    return h;
+  }
+
+  if(scores.length){ list.appendChild(makeHeader('文字棋譜（可播放走子）','♟')); scores.forEach(([l,i])=>list.appendChild(makeItem(l,i))); }
+  if(videos.length){ list.appendChild(makeHeader('教學影片 / 播放清單','▶')); videos.forEach(([l,i])=>list.appendChild(makeItem(l,i))); }
+  if(!scores.length && !videos.length){ list.innerHTML='<div class="sr-empty" style="padding:16px 4px">此分類尚未收錄內容。</div>'; }
 }
 
 /* ============ 載入棋譜/影片 ============ */
@@ -1266,6 +1281,19 @@ function loadLine(side,cat,idx){
   if(!recording)flipBoard=(side==='後手');
   document.getElementById('boardTitle').textContent=cat+'｜'+line.name;
   document.getElementById('descBox').innerHTML='<b>'+cat+'</b><br>'+entry.intro+'<br><br>'+(line.desc||'');
+  // 建立棋譜/影片快速切換膠囊
+  const sw=document.getElementById('lineSwitch');sw.innerHTML='';
+  if(entry.lines.length>1){
+    entry.lines.forEach((l,i)=>{
+      const tag=(l.moves&&l.moves.length)?'♟':(l.playlistId||l.videoUrl)?'▶':'·';
+      const b=document.createElement('button');
+      b.textContent=tag+' '+(l.moves&&l.moves.length?'棋譜':(l.playlistId?'清單':(l.videoUrl?'影片':l.name)));
+      b.style.cssText='padding:6px 12px;border:none;border-radius:16px;font-size:.74rem;font-weight:600;cursor:pointer;'+(i===idx?'background:var(--primary);color:#fff':'background:var(--surface-variant);color:var(--on-surface-variant)');
+      b.title=l.name;
+      b.addEventListener('click',()=>loadLine(side,cat,i));
+      sw.appendChild(b);
+    });
+  }
   const vl=document.getElementById('videoLink');
   if(line.playlistId){vl.href='https://www.youtube.com/playlist?list='+line.playlistId;vl.textContent='▶ YouTube 播放清單';vl.style.display='';}
   else if(line.videoUrl){vl.href=line.videoUrl;vl.textContent='▶ YouTube 影片';vl.style.display='';}
