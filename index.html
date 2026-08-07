@@ -22,6 +22,12 @@
   --safe-top:env(safe-area-inset-top); --safe-bottom:env(safe-area-inset-bottom);
   --radius-sm:8px; --radius-md:12px; --radius-lg:16px;
   --shadow-1:0 1px 3px rgba(0,0,0,.08); --shadow-2:0 2px 8px rgba(0,0,0,.1); --shadow-3:0 4px 16px rgba(0,0,0,.12);
+  --danger:#B3261E; --danger-strong:#D32F2F; --master:#7B4FA0;
+  --gold-strong:#C9A227; --gold-dim:#8C7018; --felt-line:#3A2415;
+  --piece-r-hi:#D6584F; --piece-r-lo:#7E2A24; --piece-b-hi:#4A4A47; --piece-b-lo:#141412;
+  --piece-r-text:#F7E7C9; --piece-b-text:#E4C874; --select-green:#6FCF6F;
+  --fs-xs:.68rem; --fs-sm:.74rem; --fs-md:.82rem; --fs-lg:.9rem;
+  --felt:#E8D5A8; --river-text:#5A4020; --link-panel:#312217; --link-input:#1d120a;
 }
 @media (prefers-color-scheme:dark){
   :root{ --surface:#1E1A14; --surface-variant:#2A2420; --background:#14120E; --background-dark:#211D16;
@@ -280,7 +286,7 @@ select.field{appearance:auto}
         <div id="storageInfo" style="font-size:.72rem;color:var(--on-surface-variant);padding-top:8px"></div>
         <div class="btn-row" style="margin-top:8px">
           <button class="ghost" id="btnBatchImport" style="flex:1;padding:10px;border:none;border-radius:10px;background:var(--surface-variant);color:var(--on-surface);font-size:.8rem;font-weight:600;cursor:pointer">📦 批次匯入多盤</button>
-          <button class="ghost" id="btnClearAll" style="flex:1;padding:10px;border:none;border-radius:10px;background:var(--surface-variant);color:#B3261E;font-size:.8rem;cursor:pointer">清空全部</button>
+          <button class="ghost" id="btnClearAll" style="flex:1;padding:10px;border:none;border-radius:10px;background:var(--surface-variant);color:var(--danger);font-size:.8rem;cursor:pointer">清空全部</button>
         </div>
         <div id="savedList" style="padding-top:10px"></div>
       </div>
@@ -689,28 +695,28 @@ const svg = document.getElementById('board');
 
 function drawBoardGrid(){
   let html='';
-  html += `<rect x="0" y="0" width="544" height="642" fill="#E8D5A8"/>`;
+  html += `<rect x="0" y="0" width="544" height="642" fill="var(--felt)"/>`;
   // 橫線 (每一列都畫滿，包含河界前後兩條)
   for(let r=0;r<10;r++){
-    html += `<line x1="${X(0)}" y1="${Y(r)}" x2="${X(8)}" y2="${Y(r)}" stroke="#3A2415" stroke-width="1.5"/>`;
+    html += `<line x1="${X(0)}" y1="${Y(r)}" x2="${X(8)}" y2="${Y(r)}" stroke="var(--felt-line)" stroke-width="1.5"/>`;
   }
   // 直線：col0與col8貫通全場，其餘中斷於河界
   for(let c=0;c<9;c++){
     if(c===0||c===8){
-      html += `<line x1="${X(c)}" y1="${Y(0)}" x2="${X(c)}" y2="${Y(9)}" stroke="#3A2415" stroke-width="1.5"/>`;
+      html += `<line x1="${X(c)}" y1="${Y(0)}" x2="${X(c)}" y2="${Y(9)}" stroke="var(--felt-line)" stroke-width="1.5"/>`;
     } else {
-      html += `<line x1="${X(c)}" y1="${Y(0)}" x2="${X(c)}" y2="${Y(4)}" stroke="#3A2415" stroke-width="1.5"/>`;
-      html += `<line x1="${X(c)}" y1="${Y(5)}" x2="${X(c)}" y2="${Y(9)}" stroke="#3A2415" stroke-width="1.5"/>`;
+      html += `<line x1="${X(c)}" y1="${Y(0)}" x2="${X(c)}" y2="${Y(4)}" stroke="var(--felt-line)" stroke-width="1.5"/>`;
+      html += `<line x1="${X(c)}" y1="${Y(5)}" x2="${X(c)}" y2="${Y(9)}" stroke="var(--felt-line)" stroke-width="1.5"/>`;
     }
   }
   // 九宮格斜線
-  html += `<line x1="${X(3)}" y1="${Y(0)}" x2="${X(5)}" y2="${Y(2)}" stroke="#3A2415" stroke-width="1.5"/>`;
-  html += `<line x1="${X(5)}" y1="${Y(0)}" x2="${X(3)}" y2="${Y(2)}" stroke="#3A2415" stroke-width="1.5"/>`;
-  html += `<line x1="${X(3)}" y1="${Y(7)}" x2="${X(5)}" y2="${Y(9)}" stroke="#3A2415" stroke-width="1.5"/>`;
-  html += `<line x1="${X(5)}" y1="${Y(7)}" x2="${X(3)}" y2="${Y(9)}" stroke="#3A2415" stroke-width="1.5"/>`;
+  html += `<line x1="${X(3)}" y1="${Y(0)}" x2="${X(5)}" y2="${Y(2)}" stroke="var(--felt-line)" stroke-width="1.5"/>`;
+  html += `<line x1="${X(5)}" y1="${Y(0)}" x2="${X(3)}" y2="${Y(2)}" stroke="var(--felt-line)" stroke-width="1.5"/>`;
+  html += `<line x1="${X(3)}" y1="${Y(7)}" x2="${X(5)}" y2="${Y(9)}" stroke="var(--felt-line)" stroke-width="1.5"/>`;
+  html += `<line x1="${X(5)}" y1="${Y(7)}" x2="${X(3)}" y2="${Y(9)}" stroke="var(--felt-line)" stroke-width="1.5"/>`;
   // 河界文字
-  html += `<text x="${(X(0)+X(2))/2}" y="${(Y(4)+Y(5))/2+8}" font-size="26" fill="#5A4020" font-family='"Noto Serif TC",serif' text-anchor="middle" letter-spacing="4">楚 河</text>`;
-  html += `<text x="${(X(6)+X(8))/2}" y="${(Y(4)+Y(5))/2+8}" font-size="26" fill="#5A4020" font-family='"Noto Serif TC",serif' text-anchor="middle" letter-spacing="4">漢 界</text>`;
+  html += `<text x="${(X(0)+X(2))/2}" y="${(Y(4)+Y(5))/2+8}" font-size="26" fill="var(--river-text)" font-family='"Noto Serif TC",serif' text-anchor="middle" letter-spacing="4">楚 河</text>`;
+  html += `<text x="${(X(6)+X(8))/2}" y="${(Y(4)+Y(5))/2+8}" font-size="26" fill="var(--river-text)" font-family='"Noto Serif TC",serif' text-anchor="middle" letter-spacing="4">漢 界</text>`;
   return html;
 }
 
@@ -1410,12 +1416,12 @@ function showLinkFallback(url){
   if(!box){
     box=document.createElement('div');
     box.id='linkFallback';
-    box.style.cssText='position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99;background:#312217;border:1px solid #C9A227;border-radius:10px;padding:14px 16px;max-width:92vw;width:520px;box-shadow:0 8px 24px rgba(0,0,0,.6);';
-    box.innerHTML='<div style="font-size:.78rem;color:#C9A227;font-weight:700;margin-bottom:8px;">此環境無法直接開新視窗，請複製連結到瀏覽器開啟：</div>'+
-      '<input readonly style="width:100%;box-sizing:border-box;background:#1d120a;color:#F3E6C8;border:1px solid #8C7018;border-radius:6px;padding:8px 10px;font-size:.75rem;margin-bottom:8px;">'+
+    box.style.cssText='position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99;background:var(--link-panel);border:1px solid var(--gold-strong);border-radius:10px;padding:14px 16px;max-width:92vw;width:520px;box-shadow:0 8px 24px rgba(0,0,0,.6);';
+    box.innerHTML='<div style="font-size:.78rem;color:var(--gold-strong);font-weight:700;margin-bottom:8px;">此環境無法直接開新視窗，請複製連結到瀏覽器開啟：</div>'+
+      '<input readonly style="width:100%;box-sizing:border-box;background:var(--link-input);color:#F3E6C8;border:1px solid var(--gold-dim);border-radius:6px;padding:8px 10px;font-size:.75rem;margin-bottom:8px;">'+
       '<div style="display:flex;gap:8px;justify-content:flex-end;">'+
-      '<button id="lfCopy" style="background:#C9A227;color:#1a1204;border:0;border-radius:6px;padding:7px 14px;font-size:.78rem;font-weight:700;cursor:pointer;font-family:inherit;">複製連結</button>'+
-      '<button id="lfClose" style="background:transparent;color:#C9B48A;border:1px solid #8C7018;border-radius:6px;padding:7px 14px;font-size:.78rem;cursor:pointer;font-family:inherit;">關閉</button></div>';
+      '<button id="lfCopy" style="background:var(--gold-strong);color:#1a1204;border:0;border-radius:6px;padding:7px 14px;font-size:.78rem;font-weight:700;cursor:pointer;font-family:inherit;">複製連結</button>'+
+      '<button id="lfClose" style="background:transparent;color:#C9B48A;border:1px solid var(--gold-dim);border-radius:6px;padding:7px 14px;font-size:.78rem;cursor:pointer;font-family:inherit;">關閉</button></div>';
     document.body.appendChild(box);
     box.querySelector('#lfClose').addEventListener('click',()=>{ box.style.display='none'; });
     box.querySelector('#lfCopy').addEventListener('click',()=>{
@@ -1460,7 +1466,7 @@ let __boardCacheFlip=null;   // 記錄目前快取的翻轉狀態
 function ensureBoardShell(){
   // 棋盤格線層固定不變(只有翻轉時需重建)，快取後只更新棋子層
   if(__boardCacheFlip===flipBoard && svgEl.__shellReady) return;
-  const defs=`<defs><radialGradient id="g-r" cx="35%" cy="30%" r="75%"><stop offset="0%" stop-color="#D6584F"/><stop offset="100%" stop-color="#7E2A24"/></radialGradient><radialGradient id="g-b" cx="35%" cy="30%" r="75%"><stop offset="0%" stop-color="#4A4A47"/><stop offset="100%" stop-color="#141412"/></radialGradient></defs>`;
+  const defs=`<defs><radialGradient id="g-r" cx="35%" cy="30%" r="75%"><stop offset="0%" stop-color="var(--piece-r-hi)"/><stop offset="100%" stop-color="var(--piece-r-lo)"/></radialGradient><radialGradient id="g-b" cx="35%" cy="30%" r="75%"><stop offset="0%" stop-color="var(--piece-b-hi)"/><stop offset="100%" stop-color="var(--piece-b-lo)"/></radialGradient></defs>`;
   svgEl.innerHTML = defs + drawBoardGrid()
     + '<g id="hl-layer"></g><g id="piece-layer"></g>';
   __boardCacheFlip=flipBoard;
@@ -1476,14 +1482,14 @@ function renderBoard(){
   ensureBoardShell();
   // 只重畫高亮層與棋子層，棋盤格線層維持快取
   let hl='';
-  if(idx>0){const last=arr[idx-1];hl+=`<circle cx="${X(dC(last.to[0]))}" cy="${Y(dR(last.to[1]))}" r="27" fill="none" stroke="#C9A227" stroke-width="2.5" opacity="0.85"/>`;}
-  if(recording&&selectedPos){hl+=`<circle cx="${X(dC(selectedPos[0]))}" cy="${Y(dR(selectedPos[1]))}" r="28" fill="none" stroke="#6FCF6F" stroke-width="3"/>`;}
+  if(idx>0){const last=arr[idx-1];hl+=`<circle cx="${X(dC(last.to[0]))}" cy="${Y(dR(last.to[1]))}" r="27" fill="none" stroke="var(--gold-strong)" stroke-width="2.5" opacity="0.85"/>`;}
+  if(recording&&selectedPos){hl+=`<circle cx="${X(dC(selectedPos[0]))}" cy="${Y(dR(selectedPos[1]))}" r="28" fill="none" stroke="var(--select-green)" stroke-width="3"/>`;}
   svgEl.__hlLayer.innerHTML=hl;
   let ph='';
   pieces.forEach(p=>{
     const cx=X(dC(p.col)),cy=Y(dR(p.row)),isRed=p.side==='r';
-    const textC=isRed?'#F7E7C9':'#E4C874';
-    ph+=`<g><circle cx="${cx}" cy="${cy}" r="24" fill="url(#g-${isRed?'r':'b'})" stroke="#C9A227" stroke-width="1.5"/><circle cx="${cx}" cy="${cy}" r="20" fill="none" stroke="${textC}" stroke-width="0.6" opacity="0.5"/><text x="${cx}" y="${cy+8}" font-size="22" fill="${textC}" font-family="'Noto Serif TC',serif" font-weight="700" text-anchor="middle">${p.type}</text></g>`;
+    const textC=isRed?'var(--piece-r-text)':'var(--piece-b-text)';
+    ph+=`<g><circle cx="${cx}" cy="${cy}" r="24" fill="url(#g-${isRed?'r':'b'})" stroke="var(--gold-strong)" stroke-width="1.5"/><circle cx="${cx}" cy="${cy}" r="20" fill="none" stroke="${textC}" stroke-width="0.6" opacity="0.5"/><text x="${cx}" y="${cy+8}" font-size="22" fill="${textC}" font-family="'Noto Serif TC',serif" font-weight="700" text-anchor="middle">${p.type}</text></g>`;
   });
   svgEl.__pieceLayer.innerHTML=ph;
   // 步數與輪走方
@@ -1683,7 +1689,7 @@ function buildLineList(){
 
   function makeItem(l,i){
     const it=document.createElement('div');it.className='line-item';
-    it.style.borderLeftColor=l.master?'#7B4FA0':(l.moves&&l.moves.length)?'var(--primary)':(l.playlistId?'var(--accent)':'var(--outline)');
+    it.style.borderLeftColor=l.master?'var(--master)':(l.moves&&l.moves.length)?'var(--primary)':(l.playlistId?'var(--accent)':'var(--outline)');
     it.innerHTML=`<div class="ln">${l.name} <span style="font-size:.68rem;color:var(--on-surface-variant)">【${lineTag(l)}】</span></div><div class="ld">${l.desc||entry.intro}</div>`;
     it.addEventListener('click',()=>{loadLine(curSide,curCat,i);gotoTab('home');});
     return it;
@@ -1803,8 +1809,8 @@ function renderBoardFromPieces(fp){
   let ph='';
   fp.forEach(p=>{
     const cx=X(dC(p.col)),cy=Y(dR(p.row)),isRed=p.side==='r';
-    const textC=isRed?'#F7E7C9':'#E4C874';
-    ph+=`<g><circle cx="${cx}" cy="${cy}" r="24" fill="url(#g-${isRed?'r':'b'})" stroke="#C9A227" stroke-width="1.5"/><circle cx="${cx}" cy="${cy}" r="20" fill="none" stroke="${textC}" stroke-width="0.6" opacity="0.5"/><text x="${cx}" y="${cy+8}" font-size="22" fill="${textC}" font-family="'Noto Serif TC',serif" font-weight="700" text-anchor="middle">${p.type}</text></g>`;
+    const textC=isRed?'var(--piece-r-text)':'var(--piece-b-text)';
+    ph+=`<g><circle cx="${cx}" cy="${cy}" r="24" fill="url(#g-${isRed?'r':'b'})" stroke="var(--gold-strong)" stroke-width="1.5"/><circle cx="${cx}" cy="${cy}" r="20" fill="none" stroke="${textC}" stroke-width="0.6" opacity="0.5"/><text x="${cx}" y="${cy+8}" font-size="22" fill="${textC}" font-family="'Noto Serif TC',serif" font-weight="700" text-anchor="middle">${p.type}</text></g>`;
   });
   svgEl.__pieceLayer.innerHTML=ph;
   document.getElementById('boardTitle').textContent='FEN 載入盤面';
@@ -1968,7 +1974,7 @@ function renderSavedList(){
     const d=document.createElement('div');d.className='line-item';d.style.borderLeftColor='var(--accent)';
     d.innerHTML=`<div class="ln">${g.name}</div><div class="ld">${g.side}｜${g.cat}　${g.tokens.length}步</div>`;
     const del=document.createElement('button');
-    del.textContent='刪除';del.style.cssText='margin-top:8px;padding:6px 14px;border:none;border-radius:8px;background:var(--surface-variant);color:#B3261E;font-size:.76rem;cursor:pointer';
+    del.textContent='刪除';del.style.cssText='margin-top:8px;padding:6px 14px;border:none;border-radius:8px;background:var(--surface-variant);color:var(--danger);font-size:.76rem;cursor:pointer';
     del.addEventListener('click',(ev)=>{ev.stopPropagation();deleteSavedGame(i);});
     d.addEventListener('click',()=>{
       // 找到該棋譜在 DATA 中的位置並載入
@@ -2058,7 +2064,7 @@ document.getElementById('impModeNormal').addEventListener('click',()=>{
 });
 document.getElementById('impModeMaster').addEventListener('click',()=>{
   impMasterMode=true;
-  document.getElementById('impModeMaster').style.cssText='flex:1;padding:9px;border:none;border-radius:10px;font-size:.82rem;font-weight:600;cursor:pointer;background:#7B4FA0;color:#fff';
+  document.getElementById('impModeMaster').style.cssText='flex:1;padding:9px;border:none;border-radius:10px;font-size:.82rem;font-weight:600;cursor:pointer;background:var(--master);color:#fff';
   document.getElementById('impModeNormal').style.cssText='flex:1;padding:9px;border:none;border-radius:10px;font-size:.82rem;font-weight:600;cursor:pointer;background:var(--surface-variant);color:var(--on-surface-variant)';
   document.getElementById('masterFields').style.display='block';
   document.getElementById('importCard').querySelector('h3').textContent='👑 匯入大師對局';
