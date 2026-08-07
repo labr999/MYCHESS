@@ -237,6 +237,17 @@ select.field{appearance:auto}
 
   <!-- 開局 -->
   <section class="tab-content" id="tab-open">
+    <div class="card">
+      <h3>🔎 開局搜尋（Opening Book）</h3>
+      <input class="field" type="text" id="obSearch" placeholder="輸入著法或開局名，如「炮二平五」「屏風馬」" style="margin-bottom:0">
+      <div id="obResults" style="margin-top:10px"></div>
+    </div>
+    <div class="card">
+      <div class="collapse-head" id="treeToggle"><h3 style="margin:0">🌳 開局樹狀圖</h3><span class="chev rot" id="treeChev">▼</span></div>
+      <div class="collapse-body open" id="treeBody">
+        <div id="openingTree" style="padding-top:10px"></div>
+      </div>
+    </div>
     <div class="side-seg">
       <button class="active" data-side="先手">先手（執紅）</button>
       <button data-side="後手">後手（執黑）</button>
@@ -266,6 +277,11 @@ select.field{appearance:auto}
     <div class="card" id="savedCard">
       <div class="collapse-head" id="savedToggle"><h3 style="margin:0">💾 已儲存棋譜 <span id="savedCount" style="font-size:.72rem;color:var(--on-surface-variant);font-weight:400"></span></h3><span class="chev rot" id="savedChev">▼</span></div>
       <div class="collapse-body open" id="savedBody">
+        <div id="storageInfo" style="font-size:.72rem;color:var(--on-surface-variant);padding-top:8px"></div>
+        <div class="btn-row" style="margin-top:8px">
+          <button class="ghost" id="btnBatchImport" style="flex:1;padding:10px;border:none;border-radius:10px;background:var(--surface-variant);color:var(--on-surface);font-size:.8rem;font-weight:600;cursor:pointer">📦 批次匯入多盤</button>
+          <button class="ghost" id="btnClearAll" style="flex:1;padding:10px;border:none;border-radius:10px;background:var(--surface-variant);color:#B3261E;font-size:.8rem;cursor:pointer">清空全部</button>
+        </div>
         <div id="savedList" style="padding-top:10px"></div>
       </div>
     </div>
@@ -284,9 +300,10 @@ select.field{appearance:auto}
           <input class="field" type="text" id="impYear" placeholder="年份，如 1974" style="flex:1">
           <input class="field" type="text" id="impEvent" placeholder="比賽名稱" style="flex:2">
         </div>
+        <div style="font-size:.74rem;color:var(--on-surface-variant);margin:2px 2px 6px">開局分類（可用下方選單手動指定，預設自動判斷）</div>
       </div>
       <input class="field" type="text" id="impName" placeholder="棋譜名稱（可留空自動命名）">
-      <textarea class="field" id="impText" rows="4" placeholder="貼上棋譜文字，如：1.炮二平五 馬2進3 2.馬二進三 炮2平1 …（簡繁體、含回合數皆可）"></textarea>
+      <textarea class="field" id="impText" rows="4" placeholder="貼上棋譜（自動辨識格式）：中文記譜／東萍 DhtmlXQ／WXF／ICCS／PGN／FEN／JSON 皆可。"></textarea>
       <select class="field" id="impCategory"><option value="auto">🤖 自動分類</option></select>
       <div class="btn-row">
         <button class="primary" id="btnDoImport">匯入並分類</button>
@@ -1072,6 +1089,189 @@ function matchKnownLines(notas){
 
 const MOVE_TOKEN_RE = /[前后後]?[車车馬马砲炮相象仕士帥帅將将兵卒][一二三四五六七八九1-9]?[平進进退][一二三四五六七八九1-9]/g;
 
+/* WXF/ICCS 英文座標記譜 偵測與解析 */
+function isWXF(text){
+  const t=text.match(/[KAEHRCPkaehrcp][0-9+-][+\-.][0-9]/g);
+  return t && t.length>=4;
+}
+function parseWXF(text){
+  const tokens=text.match(/[KAEHRCPkaehrcp][0-9+-][+\-.][0-9]/g)||[];
+  function pieceType(letter,isRed){
+    const map=isRed?{K:'帥',A:'仕',E:'相',H:'馬',R:'車',C:'炮',P:'兵'}
+                   :{K:'將',A:'士',E:'象',H:'馬',R:'車',C:'砲',P:'卒'};
+    return map[letter.toUpperCase()];
+  }
+  const fileToCol=(file,isRed)=> isRed ? 9-file : file-1;
+  const pieces=initialPieces().map(p=>({...p}));
+  const notations=[];
+  for(let i=0;i<tokens.length;i++){
+    const t=tokens[i];
+    const letter=t[0], marker=t[1], dir=t[2], val=+t[3];
+    const isRed=letter===letter.toUpperCase();
+    const side=isRed?'r':'b';
+    const type=pieceType(letter,isRed);
+    let cands=pieces.filter(p=>p.side===side&&p.type===type);
+    let mover;
+    if(marker==='+'||marker==='-'){
+      // 同直線前後標記：先找有兩子同直線的那一列
+      const byCol={};
+      cands.forEach(p=>{(byCol[p.col]=byCol[p.col]||[]).push(p);});
+      let col=Object.keys(byCol).find(c=>byCol[c].length>=2);
+      let group=col!==undefined?byCol[col]:cands;
+      group.sort((a,b)=>a.row-b.row);          // row小在上
+      // 紅方「前」=較靠對方(row小), 黑方「前」=row大
+      const front = isRed?group[0]:group[group.length-1];
+      const rear  = isRed?group[group.length-1]:group[0];
+      mover = (marker==='+')?front:rear;
+    } else {
+      const fromCol=fileToCol(+marker,isRed);
+      cands=cands.filter(p=>p.col===fromCol);
+      if(cands.length===0){break;}
+      mover=cands[0];
+    }
+    if(!mover)break;
+    const straight=(type==='車'||type==='炮'||type==='砲'||type==='兵'||type==='卒'||type==='帥'||type==='將');
+    let toCol,toRow;
+    if(dir==='.'){ toCol=fileToCol(val,isRed); toRow=mover.row; }
+    else if(straight){ toCol=mover.col; toRow=isRed?mover.row+(dir==='+'?-val:val):mover.row+(dir==='+'?val:-val); }
+    else {
+      toCol=fileToCol(val,isRed);
+      const dcol=Math.abs(toCol-mover.col);
+      let drow=(type==='馬')?(dcol===1?2:1):((type==='相'||type==='象')?2:1);
+      toRow=isRed?mover.row+(dir==='+'?-drow:drow):mover.row+(dir==='+'?drow:-drow);
+    }
+    // 多候選(非前後標記)時用落點合法性挑
+    if((marker!=='+'&&marker!=='-')){
+      const same=pieces.filter(p=>p.side===side&&p.type===type&&p.col===mover.col);
+      if(same.length>1){
+        const valid=same.filter(c=>{const tr=isRed?c.row+(dir==='+'?-val:val):c.row+(dir==='+'?val:-val);return dir==='.'||(tr>=0&&tr<=9);});
+        if(valid.length)mover=valid[0];
+      }
+    }
+    const from=[mover.col,mover.row], to=[toCol,toRow];
+    const nota=genNotation(pieces, mover, from, to);
+    notations.push(nota);
+    const capIdx=pieces.findIndex(p=>p.col===to[0]&&p.row===to[1]&&p!==mover);
+    if(capIdx>=0)pieces.splice(capIdx,1);
+    mover.col=to[0]; mover.row=to[1];
+  }
+  return notations;
+}
+
+/* 東萍 DhtmlXQ 格式偵測與解析 */
+/* ICCS 座標記譜：如 h2-e2（直線字母a-i + 行號0-9，起-終）或 7747 純數字 */
+function isICCS(text){
+  return /[a-iA-I]\d[-]?[a-iA-I]\d/.test(text) && !isWXF(text);
+}
+function parseICCS(text){
+  // ICCS: 直線 a-i(左到右=col 0-8), 行 0-9(下到上, 紅底線=0 → row 9-n)
+  const toks=text.match(/([a-iA-I])(\d)[-]?([a-iA-I])(\d)/g)||[];
+  const pieces=initialPieces().map(p=>({...p}));
+  const notations=[];
+  for(const tk of toks){
+    const m=tk.match(/([a-iA-I])(\d)[-]?([a-iA-I])(\d)/);
+    const fc=m[1].toLowerCase().charCodeAt(0)-97, fr=9-(+m[2]);
+    const tc=m[3].toLowerCase().charCodeAt(0)-97, tr=9-(+m[4]);
+    const mover=pieces.find(p=>p.col===fc&&p.row===fr);
+    if(!mover)break;
+    notations.push(genNotation(pieces,mover,[fc,fr],[tc,tr]));
+    const ci=pieces.findIndex(p=>p.col===tc&&p.row===tr&&p!==mover);
+    if(ci>=0)pieces.splice(ci,1);
+    mover.col=tc;mover.row=tr;
+  }
+  return notations;
+}
+
+/* PGN(中國象棋版)：含 [Event] 等標頭 + 中文或WXF著法 */
+function isPGN(text){ return /\[Event\s|\[Red\s|\[Black\s|\[Result\s/i.test(text) && !isDhtmlXQ(text); }
+function parsePGN(text){
+  const get=(tag)=>{const m=text.match(new RegExp('\\['+tag+'\\s+"([^"]*)"','i'));return m?m[1]:'';};
+  // 移除標頭與註解，取著法區
+  let body=text.replace(/\[[^\]]*\]/g,'').replace(/\{[^}]*\}/g,'').replace(/\d+\./g,' ');
+  let notations;
+  // 著法可能是中文或WXF
+  if(/[車马砲炮相象仕士帥将兵卒車馬砲将帥]/.test(body)){
+    notations=tokenizeRecord(body);
+  } else if(isWXF(body)){
+    notations=parseWXF(body);
+  } else {
+    notations=[];
+  }
+  return {
+    notations,
+    red:get('Red')||get('RedTeam'),
+    black:get('Black')||get('BlackTeam'),
+    event:get('Event'),
+    year:(get('Date').match(/\d{4}/)||[''])[0],
+    result:get('Result')
+  };
+}
+
+/* FEN：象棋盤面(單一局面，非棋譜) */
+function isFEN(text){
+  const t=text.trim();
+  return /^[rnbakcpRNBAKCP1-9]+(\/[rnbakcpRNBAKCP1-9]+){9}\s+[wbrn]/.test(t);
+}
+function piecesFromFEN(fen){
+  const board=fen.trim().split(/\s+/)[0];
+  const rows=board.split('/');
+  const map={r:['b','車'],n:['b','馬'],h:['b','馬'],b:['b','象'],e:['b','象'],a:['b','士'],k:['b','將'],c:['b','砲'],p:['b','卒'],
+             R:['r','車'],N:['r','馬'],H:['r','馬'],B:['r','相'],E:['r','相'],A:['r','仕'],K:['r','帥'],C:['r','炮'],P:['r','兵']};
+  const pieces=[];
+  rows.forEach((row,r)=>{
+    let c=0;
+    for(const ch of row){
+      if(/\d/.test(ch)){c+=+ch;continue;}
+      const info=map[ch];
+      if(info){pieces.push({side:info[0],type:info[1],col:c,row:r});}
+      c++;
+    }
+  });
+  return pieces;
+}
+
+/* JSON：本 app 匯出的格式 {notations:[...], meta:{...}} 或純著法陣列 */
+function isJSON(text){const t=text.trim();return (t.startsWith('{')||t.startsWith('['));}
+function parseJSONGame(text){
+  const o=JSON.parse(text);
+  if(Array.isArray(o))return {notations:o.map(x=>typeof x==='string'?x:x.notation)};
+  if(o.notations)return {notations:o.notations, red:o.red||(o.meta&&o.meta.red), black:o.black||(o.meta&&o.meta.black), year:o.year||(o.meta&&o.meta.year), event:o.event||(o.meta&&o.meta.event), result:o.result||(o.meta&&o.meta.result)};
+  if(o.moves)return {notations:o.moves.map(m=>m.notation||m)};
+  return {notations:[]};
+}
+
+function isDhtmlXQ(text){ return /\[DhtmlXQ_movelist\]/.test(text); }function parseDhtmlXQ(text){
+  const get=(tag)=>{const m=text.match(new RegExp('\\['+tag+'\\]([\\s\\S]*?)\\[\\/'+tag+'\\]'));return m?m[1].trim():'';};
+  const ml=get('DhtmlXQ_movelist').replace(/[^0-9]/g,'');
+  const rawMoves=[];
+  for(let i=0;i+3<ml.length;i+=4){
+    rawMoves.push({from:[+ml[i],+ml[i+1]],to:[+ml[i+2],+ml[i+3]]});
+  }
+  // 將座標移動轉成中文記譜（套用引擎的 genNotation）
+  const pieces=initialPieces().map(p=>({...p}));
+  const notations=[];
+  for(let i=0;i<rawMoves.length;i++){
+    const mv=rawMoves[i];
+    const mover=pieces.find(p=>p.col===mv.from[0]&&p.row===mv.from[1]);
+    if(!mover)break;   // 座標對不上就停(資料異常)
+    const nota=genNotation(pieces, mover, mv.from, mv.to);
+    notations.push(nota);
+    const capIdx=pieces.findIndex(p=>p.col===mv.to[0]&&p.row===mv.to[1]&&p!==mover);
+    if(capIdx>=0)pieces.splice(capIdx,1);
+    mover.col=mv.to[0]; mover.row=mv.to[1];
+  }
+  return {
+    notations,
+    red:get('DhtmlXQ_redname')||get('DhtmlXQ_red'),
+    black:get('DhtmlXQ_blackname')||get('DhtmlXQ_black'),
+    event:get('DhtmlXQ_event')||get('DhtmlXQ_class'),
+    year:(get('DhtmlXQ_date').match(/\d{4}/)||[''])[0],
+    result:get('DhtmlXQ_result'),
+    open:get('DhtmlXQ_open'),
+    title:get('DhtmlXQ_title')
+  };
+}
+
 function tokenizeRecord(text){
   return text.match(MOVE_TOKEN_RE) || [];
 }
@@ -1106,10 +1306,63 @@ function refreshImportCategoryOptions(){
 }
 
 let importedGames = [];
+
+/* ============ IndexedDB 離線棋庫（可存上萬盤，localStorage 為後備） ============ */
+const IDB_NAME='xiangqiDB', IDB_STORE='games', IDB_VER=1;
+let __idb=null, __idbReady=false;
+function idbOpen(){
+  return new Promise((resolve)=>{
+    if(!('indexedDB' in window)){resolve(null);return;}
+    try{
+      const req=indexedDB.open(IDB_NAME,IDB_VER);
+      req.onupgradeneeded=e=>{
+        const db=e.target.result;
+        if(!db.objectStoreNames.contains(IDB_STORE)){
+          const store=db.createObjectStore(IDB_STORE,{keyPath:'id',autoIncrement:true});
+          store.createIndex('side_cat','side_cat',{unique:false});
+        }
+      };
+      req.onsuccess=e=>{__idb=e.target.result;__idbReady=true;resolve(__idb);};
+      req.onerror=()=>resolve(null);
+    }catch(e){resolve(null);}
+  });
+}
+function idbPut(rec){
+  return new Promise((resolve)=>{
+    if(!__idb){resolve(false);return;}
+    try{const tx=__idb.transaction(IDB_STORE,'readwrite');tx.objectStore(IDB_STORE).add(rec);tx.oncomplete=()=>resolve(true);tx.onerror=()=>resolve(false);}
+    catch(e){resolve(false);}
+  });
+}
+function idbGetAll(){
+  return new Promise((resolve)=>{
+    if(!__idb){resolve(null);return;}
+    try{const tx=__idb.transaction(IDB_STORE,'readonly');const req=tx.objectStore(IDB_STORE).getAll();req.onsuccess=()=>resolve(req.result||[]);req.onerror=()=>resolve(null);}
+    catch(e){resolve(null);}
+  });
+}
+function idbClear(){
+  return new Promise((resolve)=>{
+    if(!__idb){resolve(false);return;}
+    try{const tx=__idb.transaction(IDB_STORE,'readwrite');tx.objectStore(IDB_STORE).clear();tx.oncomplete=()=>resolve(true);tx.onerror=()=>resolve(false);}
+    catch(e){resolve(false);}
+  });
+}
+
 function persistImports(){
+  // 主存 IndexedDB（全量覆寫），localStorage 作小量後備
+  if(__idbReady){
+    idbClear().then(()=>{
+      const tx=__idb.transaction(IDB_STORE,'readwrite');
+      const store=tx.objectStore(IDB_STORE);
+      importedGames.forEach(g=>store.add({side:g.side,cat:g.cat,name:g.name,tokens:g.tokens,meta:g.meta||null,side_cat:g.side+'|'+g.cat}));
+    });
+  }
+  // localStorage 後備（超過一定量只存最近，避免超出 5MB）
   try{
-    localStorage.setItem('xiangqi_imported_games', JSON.stringify(importedGames));
-  }catch(e){ /* 隱私模式或空間不足時略過 */ }
+    const slim=importedGames.length>300?importedGames.slice(-300):importedGames;
+    localStorage.setItem('xiangqi_imported_games', JSON.stringify(slim));
+  }catch(e){}
 }
 
 function addImportedGame(side, cat, name, tokens, save, meta){
@@ -1203,19 +1456,36 @@ function dR(r){return flipBoard?9-r:r;}
 const svgEl=document.getElementById('board');
 
 /* ============ 棋盤渲染 ============ */
+let __boardCacheFlip=null;   // 記錄目前快取的翻轉狀態
+function ensureBoardShell(){
+  // 棋盤格線層固定不變(只有翻轉時需重建)，快取後只更新棋子層
+  if(__boardCacheFlip===flipBoard && svgEl.__shellReady) return;
+  const defs=`<defs><radialGradient id="g-r" cx="35%" cy="30%" r="75%"><stop offset="0%" stop-color="#D6584F"/><stop offset="100%" stop-color="#7E2A24"/></radialGradient><radialGradient id="g-b" cx="35%" cy="30%" r="75%"><stop offset="0%" stop-color="#4A4A47"/><stop offset="100%" stop-color="#141412"/></radialGradient></defs>`;
+  svgEl.innerHTML = defs + drawBoardGrid()
+    + '<g id="hl-layer"></g><g id="piece-layer"></g>';
+  __boardCacheFlip=flipBoard;
+  svgEl.__shellReady=true;
+  svgEl.__hlLayer=svgEl.querySelector('#hl-layer');
+  svgEl.__pieceLayer=svgEl.querySelector('#piece-layer');
+}
+
 function renderBoard(){
   const arr=recording?recordedMoves:currentMoves;
   const idx=recording?recordedMoves.length:currentIndex;
   const pieces=computeBoardAt(idx,arr);
-  let html=drawBoardGrid();
-  if(idx>0){const last=arr[idx-1];html+=`<circle cx="${X(dC(last.to[0]))}" cy="${Y(dR(last.to[1]))}" r="27" fill="none" stroke="#C9A227" stroke-width="2.5" opacity="0.85"/>`;}
-  if(recording&&selectedPos){html+=`<circle cx="${X(dC(selectedPos[0]))}" cy="${Y(dR(selectedPos[1]))}" r="28" fill="none" stroke="#6FCF6F" stroke-width="3"/>`;}
+  ensureBoardShell();
+  // 只重畫高亮層與棋子層，棋盤格線層維持快取
+  let hl='';
+  if(idx>0){const last=arr[idx-1];hl+=`<circle cx="${X(dC(last.to[0]))}" cy="${Y(dR(last.to[1]))}" r="27" fill="none" stroke="#C9A227" stroke-width="2.5" opacity="0.85"/>`;}
+  if(recording&&selectedPos){hl+=`<circle cx="${X(dC(selectedPos[0]))}" cy="${Y(dR(selectedPos[1]))}" r="28" fill="none" stroke="#6FCF6F" stroke-width="3"/>`;}
+  svgEl.__hlLayer.innerHTML=hl;
+  let ph='';
   pieces.forEach(p=>{
     const cx=X(dC(p.col)),cy=Y(dR(p.row)),isRed=p.side==='r';
     const textC=isRed?'#F7E7C9':'#E4C874';
-    html+=`<g><circle cx="${cx}" cy="${cy}" r="24" fill="url(#g-${isRed?'r':'b'})" stroke="#C9A227" stroke-width="1.5"/><circle cx="${cx}" cy="${cy}" r="20" fill="none" stroke="${textC}" stroke-width="0.6" opacity="0.5"/><text x="${cx}" y="${cy+8}" font-size="22" fill="${textC}" font-family="'Noto Serif TC',serif" font-weight="700" text-anchor="middle">${p.type}</text></g>`;
+    ph+=`<g><circle cx="${cx}" cy="${cy}" r="24" fill="url(#g-${isRed?'r':'b'})" stroke="#C9A227" stroke-width="1.5"/><circle cx="${cx}" cy="${cy}" r="20" fill="none" stroke="${textC}" stroke-width="0.6" opacity="0.5"/><text x="${cx}" y="${cy+8}" font-size="22" fill="${textC}" font-family="'Noto Serif TC',serif" font-weight="700" text-anchor="middle">${p.type}</text></g>`;
   });
-  svgEl.innerHTML=`<defs><radialGradient id="g-r" cx="35%" cy="30%" r="75%"><stop offset="0%" stop-color="#D6584F"/><stop offset="100%" stop-color="#7E2A24"/></radialGradient><radialGradient id="g-b" cx="35%" cy="30%" r="75%"><stop offset="0%" stop-color="#4A4A47"/><stop offset="100%" stop-color="#141412"/></radialGradient></defs>${html}`;
+  svgEl.__pieceLayer.innerHTML=ph;
   // 步數與輪走方
   document.getElementById('stepNow').textContent=recording?recordedMoves.length:currentIndex;
   document.getElementById('stepTotal').textContent=recording?recordedMoves.length:currentMoves.length;
@@ -1223,7 +1493,6 @@ function renderBoard(){
   const tb=document.getElementById('turnBadge');
   if((recording?recordedMoves.length:currentMoves.length)>0){tb.textContent='輪'+stm+'方';tb.className='turn-badge '+(stm==='紅'?'red':'black');}
   else{tb.textContent='—';tb.className='turn-badge';}
-  // 著法chips
   renderMovesList();
   if(recording) updateRecLive();
 }
@@ -1254,7 +1523,7 @@ document.querySelectorAll('.bottom-nav-item').forEach(b=>{
     const t=b.dataset.tab;
     document.querySelectorAll('.tab-content').forEach(s=>s.classList.remove('active'));
     document.getElementById('tab-'+t).classList.add('active');
-    if(t==='open')buildCatGrid();
+    if(t==='open'){buildCatGrid();buildOpeningTree();}
     window.scrollTo({top:0,behavior:'smooth'});
   });
 });
@@ -1270,6 +1539,122 @@ document.querySelectorAll('.side-seg button').forEach(b=>{
     document.querySelectorAll('.side-seg button').forEach(x=>x.classList.remove('active'));
     b.classList.add('active');curSide=b.dataset.side;buildCatGrid();
   });
+});
+
+/* ============ 開局勝率統計（由收錄棋譜計算） ============ */
+function computeWinStats(side,cat){
+  // 統計此分類下所有文字棋譜/大師對局的勝負(靠 meta.result 或棋譜名稱)
+  const entry=DATA[side]&&DATA[side][cat];
+  if(!entry)return null;
+  let games=0, rWin=0, bWin=0, draw=0;
+  entry.lines.forEach(l=>{
+    if(!(l.moves&&l.moves.length))return;
+    games++;
+    // 從匯入紀錄找對應 meta.result
+    const rec=importedGames.find(g=>g.name===l.name&&g.meta&&g.meta.result);
+    if(rec){
+      const r=rec.meta.result;
+      if(/红胜|紅勝|红先胜/.test(r))rWin++;
+      else if(/黑胜|黑勝/.test(r))bWin++;
+      else if(/和/.test(r))draw++;
+    }
+  });
+  return {games,rWin,bWin,draw};
+}
+
+/* ============ 開局樹狀圖 ============ */
+function buildOpeningTree(){
+  const box=document.getElementById('openingTree');if(!box)return;box.innerHTML='';
+  ['先手','後手'].forEach(side=>{
+    const root=document.createElement('div');
+    root.style.cssText='margin-bottom:10px';
+    const cats=Object.keys(DATA[side]);
+    const head=document.createElement('div');
+    head.style.cssText='font-weight:700;font-size:.86rem;color:var(--primary);padding:6px 0;cursor:pointer';
+    head.innerHTML=(side==='先手'?'♟ 先手（執紅）':'♟ 後手（執黑）')+' <span style="font-size:.7rem;color:var(--on-surface-variant)">'+cats.length+' 類</span>';
+    root.appendChild(head);
+    const children=document.createElement('div');
+    children.style.cssText='padding-left:6px';
+    cats.forEach((cat,ci)=>{
+      const entry=DATA[side][cat];
+      const isLast=ci===cats.length-1;
+      const node=document.createElement('div');
+      node.style.cssText='display:flex;align-items:center;gap:6px;padding:7px 4px;font-size:.82rem;cursor:pointer;border-radius:8px';
+      const branch=isLast?'└─':'├─';
+      const cnt=contentCount(entry);
+      node.innerHTML='<span style="color:var(--outline);font-family:monospace">'+branch+'</span><span>'+iconFor(cat)+'</span><span style="flex:1">'+cat+'</span><span style="font-size:.68rem;color:var(--on-surface-variant)">'+cnt+'項</span>';
+      node.addEventListener('click',()=>{curSide=side;curCat=cat;
+        document.querySelectorAll('.side-seg button').forEach(x=>x.classList.toggle('active',x.dataset.side===side));
+        buildCatGrid();buildLineList();
+        document.getElementById('catGrid').scrollIntoView({behavior:'smooth'});
+      });
+      node.addEventListener('mouseenter',()=>node.style.background='var(--surface-variant)');
+      node.addEventListener('mouseleave',()=>node.style.background='');
+      children.appendChild(node);
+    });
+    root.appendChild(children);
+    head.addEventListener('click',()=>{children.style.display=children.style.display==='none'?'':'none';});
+    box.appendChild(root);
+  });
+}
+
+/* ============ Opening Book 搜尋 ============ */
+function openingBookSearch(q){
+  const box=document.getElementById('obResults');box.innerHTML='';
+  q=q.trim();
+  if(!q){box.innerHTML='';return;}
+  const nq=normalizeNotation(q);
+  const results=[];
+  ['先手','後手'].forEach(side=>{
+    Object.keys(DATA[side]).forEach(cat=>{
+      const entry=DATA[side][cat];
+      let hit=false, reason='';
+      // 依分類名比對
+      if(cat.includes(q)){hit=true;reason='分類名符合';}
+      // 依首著或著法比對
+      if(!hit){
+        for(const l of entry.lines){
+          if(l.moves&&l.moves.length){
+            const notas=l.moves.map(m=>normalizeNotation(m.notation));
+            if(notas.some(n=>n===nq||n.includes(nq))){hit=true;reason='棋譜含此著法';break;}
+            if(notas[0]&&(notas[0]===nq)){hit=true;reason='首著符合';break;}
+          }
+        }
+      }
+      if(hit)results.push({side,cat,entry,reason});
+    });
+  });
+  if(!results.length){box.innerHTML='<div class="sr-empty">找不到符合「'+q+'」的開局。試試「炮二平五」「屏風馬」「中炮」等。</div>';return;}
+  results.slice(0,12).forEach(r=>{
+    const stats=computeWinStats(r.side,r.cat);
+    const ll=r.entry.lines.find(l=>l.playlistId);
+    const scoreCount=r.entry.lines.filter(l=>l.moves&&l.moves.length).length;
+    const vidCount=r.entry.lines.filter(l=>l.playlistId||l.videoUrl).length;
+    let statTxt='';
+    if(stats&&stats.games&&(stats.rWin||stats.bWin||stats.draw)){
+      const tot=stats.rWin+stats.bWin+stats.draw||1;
+      statTxt='　勝率 紅'+Math.round(stats.rWin/tot*100)+'% 黑'+Math.round(stats.bWin/tot*100)+'%';
+    }
+    const d=document.createElement('div');d.className='sr-item';
+    d.innerHTML='<span class="sr-cat">'+r.side+'｜'+r.cat+'</span>'+
+      (ll?' <a class="sr-yt" href="https://www.youtube.com/playlist?list='+ll.playlistId+'" target="_blank">▶ 影片</a>':'')+
+      '<br><span class="sr-why">'+r.reason+'　棋譜 '+scoreCount+'／影片 '+vidCount+statTxt+'</span>';
+    d.addEventListener('click',()=>{
+      curSide=r.side;curCat=r.cat;
+      loadLine(r.side,r.cat,0);gotoTab('home');
+    });
+    const a=d.querySelector('.sr-yt');if(a)a.addEventListener('click',ev=>ev.stopPropagation());
+    box.appendChild(d);
+  });
+}
+let obTimer=null;
+document.getElementById('obSearch').addEventListener('input',e=>{
+  if(obTimer)clearTimeout(obTimer);
+  obTimer=setTimeout(()=>openingBookSearch(e.target.value),200);
+});
+document.getElementById('treeToggle').addEventListener('click',()=>{
+  document.getElementById('treeBody').classList.toggle('open');
+  document.getElementById('treeChev').classList.toggle('rot');
 });
 
 function buildCatGrid(){
@@ -1322,7 +1707,7 @@ function loadLine(side,cat,idx){
   const entry=DATA[side][cat];const line=entry.lines[idx];
   currentMoves=line.moves||[];currentIndex=0;
   if(!recording)flipBoard=(side==='後手');
-  document.getElementById('boardTitle').textContent=cat+'｜'+line.name;
+  document.getElementById('boardTitle').textContent=line.name;
   document.getElementById('descBox').innerHTML='<b>'+cat+'</b><br>'+entry.intro+'<br><br>'+(line.desc||'');
   // 建立棋譜/影片快速切換膠囊
   const sw=document.getElementById('lineSwitch');sw.innerHTML='';
@@ -1409,6 +1794,36 @@ function updateRecLive(){
 
 /* ============ 引擎分析 ============ */
 let analysisSeq=0;
+let __engineWorker=null, __enginePending=null, __fenPieces=null;
+function renderBoardFromPieces(fp){
+  // 直接以指定棋子陣列渲染(FEN載入用)，不經 currentMoves
+  currentMoves=[];currentIndex=0;
+  ensureBoardShell();
+  svgEl.__hlLayer.innerHTML='';
+  let ph='';
+  fp.forEach(p=>{
+    const cx=X(dC(p.col)),cy=Y(dR(p.row)),isRed=p.side==='r';
+    const textC=isRed?'#F7E7C9':'#E4C874';
+    ph+=`<g><circle cx="${cx}" cy="${cy}" r="24" fill="url(#g-${isRed?'r':'b'})" stroke="#C9A227" stroke-width="1.5"/><circle cx="${cx}" cy="${cy}" r="20" fill="none" stroke="${textC}" stroke-width="0.6" opacity="0.5"/><text x="${cx}" y="${cy+8}" font-size="22" fill="${textC}" font-family="'Noto Serif TC',serif" font-weight="700" text-anchor="middle">${p.type}</text></g>`;
+  });
+  svgEl.__pieceLayer.innerHTML=ph;
+  document.getElementById('boardTitle').textContent='FEN 載入盤面';
+}
+const __ENGINE_WORKER_SRC="function pieceCategory(ch){\n  if(ch==='\u8eca'||ch==='\u8f66') return 'R';\n  if(ch==='\u99ac'||ch==='\u9a6c') return 'H';\n  if(ch==='\u7832'||ch==='\u70ae') return 'C';\n  if(ch==='\u76f8'||ch==='\u8c61') return 'E';\n  if(ch==='\u4ed5'||ch==='\u58eb') return 'A';\n  if(ch==='\u5e25'||ch==='\u5e05'||ch==='\u5c07'||ch==='\u5c06') return 'K';\n  if(ch==='\u5175'||ch==='\u5352') return 'P';\n  return null;\n}\nconst ENG_VAL = {R:1000, H:450, C:480, E:130, A:130, K:100000, P:100};\n\nfunction buildBoard(pieces){\n  const b = Array.from({length:10},()=>Array(9).fill(null));\n  pieces.forEach(p=>{ b[p.row][p.col] = {side:p.side, cat:pieceCategory(p.type), type:p.type}; });\n  return b;\n}\nfunction inBoard(c,r){ return c>=0&&c<9&&r>=0&&r<10; }\nfunction inPalace(side,c,r){ return c>=3&&c<=5 && (side==='r' ? r>=7&&r<=9 : r>=0&&r<=2); }\nfunction ownHalf(side,r){ return side==='r' ? r>=5 : r<=4; }\n\nfunction genMoves(b, side){\n  const moves=[];\n  const push=(fc,fr,tc,tr)=>{\n    const t=b[tr][tc];\n    if(t && t.side===side) return;\n    moves.push({fc,fr,tc,tr,cap:t?ENG_VAL[t.cat]:0});\n  };\n  for(let r=0;r<10;r++)for(let c=0;c<9;c++){\n    const p=b[r][c];\n    if(!p || p.side!==side) continue;\n    const cat=p.cat;\n    if(cat==='R'){\n      for(const [dc,dr] of [[1,0],[-1,0],[0,1],[0,-1]]){\n        let tc=c+dc,tr=r+dr;\n        while(inBoard(tc,tr)){\n          if(!b[tr][tc]){ push(c,r,tc,tr); }\n          else { push(c,r,tc,tr); break; }\n          tc+=dc; tr+=dr;\n        }\n      }\n    }\n    else if(cat==='C'){\n      for(const [dc,dr] of [[1,0],[-1,0],[0,1],[0,-1]]){\n        let tc=c+dc,tr=r+dr, jumped=false;\n        while(inBoard(tc,tr)){\n          if(!jumped){\n            if(!b[tr][tc]) push(c,r,tc,tr);\n            else jumped=true;\n          } else {\n            if(b[tr][tc]){ if(b[tr][tc].side!==side) push(c,r,tc,tr); break; }\n          }\n          tc+=dc; tr+=dr;\n        }\n      }\n    }\n    else if(cat==='H'){\n      const jumps=[[1,2,0,1],[-1,2,0,1],[1,-2,0,-1],[-1,-2,0,-1],[2,1,1,0],[2,-1,1,0],[-2,1,-1,0],[-2,-1,-1,0]];\n      for(const [dc,dr,lc,lr] of jumps){\n        const tc=c+dc,tr=r+dr;\n        if(!inBoard(tc,tr)) continue;\n        if(b[r+lr][c+lc]) continue;\n        push(c,r,tc,tr);\n      }\n    }\n    else if(cat==='E'){\n      for(const [dc,dr] of [[2,2],[2,-2],[-2,2],[-2,-2]]){\n        const tc=c+dc,tr=r+dr;\n        if(!inBoard(tc,tr) || !ownHalf(side,tr)) continue;\n        if(b[r+dr/2][c+dc/2]) continue;\n        push(c,r,tc,tr);\n      }\n    }\n    else if(cat==='A'){\n      for(const [dc,dr] of [[1,1],[1,-1],[-1,1],[-1,-1]]){\n        const tc=c+dc,tr=r+dr;\n        if(!inBoard(tc,tr) || !inPalace(side,tc,tr)) continue;\n        push(c,r,tc,tr);\n      }\n    }\n    else if(cat==='K'){\n      for(const [dc,dr] of [[1,0],[-1,0],[0,1],[0,-1]]){\n        const tc=c+dc,tr=r+dr;\n        if(!inBoard(tc,tr) || !inPalace(side,tc,tr)) continue;\n        push(c,r,tc,tr);\n      }\n      const dr2 = side==='r' ? -1 : 1;\n      let tr=r+dr2;\n      while(inBoard(c,tr)){\n        if(b[tr][c]){\n          if(b[tr][c].cat==='K' && b[tr][c].side!==side) push(c,r,c,tr);\n          break;\n        }\n        tr+=dr2;\n      }\n    }\n    else if(cat==='P'){\n      const fw = side==='r' ? -1 : 1;\n      if(inBoard(c,r+fw)) push(c,r,c,r+fw);\n      if(!ownHalf(side,r)){\n        if(inBoard(c+1,r)) push(c,r,c+1,r);\n        if(inBoard(c-1,r)) push(c,r,c-1,r);\n      }\n    }\n  }\n  moves.sort((a,b2)=>b2.cap-a.cap);\n  return moves;\n}\n\nfunction evalBoard(b, side){\n  let score=0;\n  for(let r=0;r<10;r++)for(let c=0;c<9;c++){\n    const p=b[r][c];\n    if(!p) continue;\n    let v = ENG_VAL[p.cat];\n    if(p.cat==='P'){\n      const crossed = p.side==='r' ? r<=4 : r>=5;\n      if(crossed) v += 80;\n      const adv = p.side==='r' ? (6-Math.min(r,6)) : (Math.max(r,3)-3);\n      v += adv*8;\n      if(c>=3&&c<=5) v+=15;\n    }\n    if(p.cat==='H'||p.cat==='C'){\n      if(c>=2&&c<=6) v+=12;\n      const out = p.side==='r' ? r<9 : r>0;\n      if(out && p.cat==='H') v+=15;\n    }\n    if(p.cat==='C' && c===4) v+=25;\n    score += (p.side===side ? v : -v);\n  }\n  return score;\n}\n\nfunction qsearch(b, side, alpha, beta, qd){\n  const stand = evalBoard(b, side);\n  if(stand >= beta) return stand;\n  if(stand > alpha) alpha = stand;\n  if(qd <= 0) return alpha;\n  const caps = genMoves(b, side).filter(m=>m.cap>0);\n  for(const m of caps){\n    const t=b[m.tr][m.tc];\n    if(t && t.cat==='K') return 95000;\n    const f=b[m.fr][m.fc];\n    b[m.tr][m.tc]=f; b[m.fr][m.fc]=null;\n    const sc = -qsearch(b, side==='r'?'b':'r', -beta, -alpha, qd-1);\n    b[m.fr][m.fc]=f; b[m.tr][m.tc]=t;\n    if(sc > alpha) alpha = sc;\n    if(alpha >= beta) break;\n  }\n  return alpha;\n}\n\nfunction negamax(b, side, depth, alpha, beta){\n  if(depth===0) return qsearch(b, side, alpha, beta, 8);\n  const moves = genMoves(b, side);\n  if(moves.length===0) return -90000;\n  let best=-Infinity;\n  for(const m of moves){\n    const t=b[m.tr][m.tc];\n    if(t && t.cat==='K') return 95000 - (3-depth);\n    const f=b[m.fr][m.fc];\n    b[m.tr][m.tc]=f; b[m.fr][m.fc]=null;\n    const sc = -negamax(b, side==='r'?'b':'r', depth-1, -beta, -alpha);\n    b[m.fr][m.fc]=f; b[m.tr][m.tc]=t;\n    if(sc>best) best=sc;\n    if(best>alpha) alpha=best;\n    if(alpha>=beta) break;\n  }\n  return best;\n}\n\nfunction localAnalyze(pieces, stm){\n  const side = stm==='w' ? 'r' : 'b';\n  const b = buildBoard(pieces);\n  const moves = genMoves(b, side);\n  if(moves.length===0) return {best:-90000, top:[]};\n  // \u8fed\u4ee3\u52a0\u6df1\uff1adepth 2 \u8d77\u6b65\uff0c\u6642\u9593\u9810\u7b97\u5167\u76e1\u91cf\u52a0\u6df1\u5230 depth 4\n  const BUDGET = (self.__budget||700);\n  const t0 = Date.now();\n  let scored = [];\n  for(let d=2; d<=4; d++){\n    const pass = [];\n    let alpha = -Infinity;\n    // \u7528\u4e0a\u4e00\u8f2a\u6392\u5e8f\u7d50\u679c\u512a\u5148\u641c\u7d22\uff0c\u63d0\u5347\u526a\u679d\n    const order = scored.length ? scored.map(s=>s.m) : moves;\n    let aborted = false;\n    for(const m of order){\n      if(Date.now()-t0 > BUDGET){ aborted = true; break; }\n      const t = b[m.tr][m.tc];\n      if(t && t.cat==='K'){ pass.push({m, score:95000}); alpha=95000; continue; }\n      const f = b[m.fr][m.fc];\n      b[m.tr][m.tc]=f; b[m.fr][m.fc]=null;\n      const sc = -negamax(b, side==='r'?'b':'r', d-1, -Infinity, -alpha+50);\n      b[m.fr][m.fc]=f; b[m.tr][m.tc]=t;\n      pass.push({m, score:sc});\n      if(sc>alpha) alpha=sc;\n    }\n    if(pass.length===order.length || scored.length===0){\n      pass.sort((a,b2)=>b2.score-a.score);\n      scored = pass;\n    }\n    if(aborted || Date.now()-t0 > BUDGET) break;\n  }\n  const safe = scored.filter(s=>s.score>-80000);\n  const top = (safe.length?safe:scored).slice(0,3);\n  const best = top.length? top[0].score : -90000;\n  return {best, top};\n}\nself.onmessage=function(e){\n  const {pieces,stm,budget,seq}=e.data;\n  self.__budget=budget||700;\n  const r=localAnalyze(pieces,stm);\n  const top=r.top.map(s=>({from:[s.m.fc,s.m.fr],to:[s.m.tc,s.m.tr],score:s.score}));\n  self.postMessage({seq,best:r.best,top});\n};\n";
+(function initWorker(){
+  try{
+    const blob=new Blob([__ENGINE_WORKER_SRC],{type:'application/javascript'});
+    __engineWorker=new Worker(URL.createObjectURL(blob));
+    __engineWorker.onmessage=function(e){
+      const {seq,best,top}=e.data;
+      if(!__enginePending||seq!==__enginePending.seq)return;
+      const {pieces,stm}=__enginePending;
+      handleEngineResult(seq,pieces,stm,best,top);
+    };
+    __engineWorker.onerror=function(){ __engineWorker=null; };  // 失敗退回同步
+  }catch(e){ __engineWorker=null; }
+})();
+
 function renderAnalysis(pieces,stm,best,top3,src){
   const et=document.getElementById('evalText'),bb=document.getElementById('bestMoves'),bar=document.getElementById('evalBar');
   const rs=(stm==='w')?best:-best,pawns=(rs/100).toFixed(2);
@@ -1451,15 +1866,25 @@ function analyzePosition(){
   const stm=(recording?recordedMoves.length:currentIndex)%2===0?'w':'b';
   document.getElementById('evalText').textContent='分析中…';
   if(recording)document.getElementById('rlBest').textContent='引擎分析中…';
-  setTimeout(()=>{
-    if(seq!==analysisSeq)return;
-    const r=localAnalyze(pieces,stm);
-    if(seq!==analysisSeq)return;
-    if(!r.top.length){document.getElementById('evalText').textContent='無合法著法';document.getElementById('bestMoves').innerHTML='';return;}
-    const top3=r.top.map(s=>({from:[s.m.fc,s.m.fr],to:[s.m.tc,s.m.tr],score:s.score}));
-    renderAnalysis(pieces,stm,r.best,top3,'內建引擎');
-    tryCloud(pieces,stm,seq);
-  },30);
+  const budget=window.__engineBudget||700;
+  if(__engineWorker){
+    __enginePending={seq,pieces,stm};
+    __engineWorker.postMessage({pieces,stm,budget,seq});
+  } else {
+    // 無 Worker 環境退回同步(仍延遲執行避免完全卡住)
+    setTimeout(()=>{
+      if(seq!==analysisSeq)return;
+      const r=localAnalyze(pieces,stm);
+      if(seq!==analysisSeq)return;
+      handleEngineResult(seq,pieces,stm,r.best,r.top.map(s=>({from:[s.m.fc,s.m.fr],to:[s.m.tc,s.m.tr],score:s.score})));
+    },30);
+  }
+}
+function handleEngineResult(seq,pieces,stm,best,top3){
+  if(seq!==analysisSeq)return;
+  if(!top3.length){document.getElementById('evalText').textContent='無合法著法';document.getElementById('bestMoves').innerHTML='';return;}
+  renderAnalysis(pieces,stm,best,top3,'內建引擎');
+  tryCloud(pieces,stm,seq);
 }
 async function tryCloud(pieces,stm,seq){
   try{
@@ -1532,6 +1957,11 @@ function renderSavedList(){
   const cnt=document.getElementById('savedCount');
   if(!box)return;
   cnt.textContent='（共 '+importedGames.length+' 局）';
+  const info=document.getElementById('storageInfo');
+  if(info){
+    const engine=__idbReady?'IndexedDB 離線棋庫':'localStorage';
+    info.textContent='儲存：'+engine+'　目前 '+importedGames.length+' 盤'+(__idbReady?'（可存上萬盤）':'（建議部署後使用以啟用大容量）');
+  }
   if(importedGames.length===0){box.innerHTML='<span class="sr-empty">尚無匯入或儲存的棋譜。用「先手/後手記譜」記錄後按儲存，或用下方匯入功能加入。</span>';return;}
   box.innerHTML='';
   importedGames.forEach((g,i)=>{
@@ -1566,6 +1996,58 @@ document.getElementById('savedToggle').addEventListener('click',()=>{
   document.getElementById('savedBody').classList.toggle('open');
   document.getElementById('savedChev').classList.toggle('rot');
 });
+
+/* 批次匯入：一次貼多盤（多個 DhtmlXQ 區塊、多行 PGN、或 JSON 陣列） */
+function splitMultiGames(text){
+  // 依 [DhtmlXQ]...[/DhtmlXQ] 或 PGN 的 [Event 分段
+  if(/\[DhtmlXQ\]/.test(text)){
+    return (text.match(/\[DhtmlXQ\][\s\S]*?\[\/DhtmlXQ\]/g)||[]);
+  }
+  if(/\[Event\s/i.test(text)){
+    return text.split(/(?=\[Event\s)/i).filter(s=>s.trim());
+  }
+  // JSON 陣列
+  try{const o=JSON.parse(text);if(Array.isArray(o))return o.map(x=>JSON.stringify(x));}catch(e){}
+  // 每行一盤
+  return text.split(/\n{2,}/).filter(s=>s.trim());
+}
+document.getElementById('btnBatchImport').addEventListener('click',()=>{
+  const t=document.getElementById('impText').value.trim();
+  if(!t){toast('請先在下方匯入框貼上多盤棋譜');document.getElementById('importCard').scrollIntoView({behavior:'smooth'});return;}
+  const games=splitMultiGames(t);
+  if(games.length<2){toast('偵測到單盤，請用一般匯入');return;}
+  let ok=0,fail=0;
+  games.forEach(gtext=>{
+    try{
+      let tokens=null, meta=null, side, cat;
+      if(isDhtmlXQ(gtext)){const g=parseDhtmlXQ(gtext);tokens=g.notations;meta={master:true,red:g.red,black:g.black,year:g.year,event:g.event,result:g.result};}
+      else if(isPGN(gtext)){const g=parsePGN(gtext);tokens=g.notations;if(g.red||g.black)meta={master:true,red:g.red,black:g.black,year:g.year,event:g.event,result:g.result};}
+      else if(isJSON(gtext)){const g=parseJSONGame(gtext);tokens=g.notations;if(g.red)meta={master:true,red:g.red,black:g.black,year:g.year,event:g.event,result:g.result};}
+      else if(isWXF(gtext)){tokens=parseWXF(gtext);}
+      else{tokens=tokenizeRecord(gtext);}
+      if(!tokens||tokens.length<2){fail++;return;}
+      const cls=autoClassify(tokens);
+      side=cls?cls.side:'先手';cat=cls?cls.cat:'匯入棋譜（未分類）';
+      const name=(meta&&(meta.red||meta.black))?((meta.red||'紅')+' 對 '+(meta.black||'黑')+(meta.year?'（'+meta.year+'）':'')):'批次#'+(importedGames.length+1);
+      const r=addImportedGame(side,cat,name,tokens,true,meta);
+      if(r.ok)ok++;else fail++;
+    }catch(e){fail++;}
+  });
+  document.getElementById('impText').value='';
+  refreshImportCats();renderSavedList();
+  toast('批次匯入完成：成功 '+ok+' 盤'+(fail?('，失敗 '+fail):''));
+});
+document.getElementById('btnClearAll').addEventListener('click',()=>{
+  if(!importedGames.length){toast('目前沒有已儲存棋譜');return;}
+  if(!confirm('確定清空全部 '+importedGames.length+' 盤已儲存棋譜？此動作無法復原。'))return;
+  // 從 DATA 移除所有匯入的 line
+  importedGames.forEach(g=>{const e=DATA[g.side]&&DATA[g.side][g.cat];if(e){const idx=e.lines.findIndex(l=>l.name===g.name);if(idx>=0)e.lines.splice(idx,1);}});
+  importedGames=[];
+  if(__idbReady)idbClear();
+  try{localStorage.removeItem('xiangqi_imported_games');}catch(e){}
+  refreshImportCats();renderSavedList();
+  toast('已清空全部棋譜');
+});
 let impMasterMode=false;
 document.getElementById('impModeNormal').addEventListener('click',()=>{
   impMasterMode=false;
@@ -1586,8 +2068,50 @@ document.getElementById('btnDoImport').addEventListener('click',()=>{
   const msg=document.getElementById('impMsg');msg.className='imp-msg';
   const raw=document.getElementById('impText').value.trim();
   if(!raw){msg.textContent='請貼上棋譜文字';msg.classList.add('err');return;}
-  const tokens=tokenizeRecord(raw);
-  if(tokens.length<2){msg.textContent='無法辨識著法，請確認格式';msg.classList.add('err');return;}
+
+  let tokens, dhtml=null, meta2=null;
+  if(isDhtmlXQ(raw)){
+    dhtml=parseDhtmlXQ(raw);
+    tokens=dhtml.notations;
+    if(tokens.length<2){msg.textContent='DhtmlXQ 棋譜解析失敗，請確認完整複製';msg.classList.add('err');return;}
+    impMasterMode=true;
+    document.getElementById('impModeMaster').click();
+    if(dhtml.red)document.getElementById('impRed').value=dhtml.red;
+    if(dhtml.black)document.getElementById('impBlack').value=dhtml.black;
+    if(dhtml.year)document.getElementById('impYear').value=dhtml.year;
+    if(dhtml.event)document.getElementById('impEvent').value=dhtml.event;
+  } else if(isPGN(raw)){
+    const g=parsePGN(raw); tokens=g.notations; meta2=g;
+    if(tokens.length<2){msg.textContent='PGN 棋譜解析失敗';msg.classList.add('err');return;}
+    if(g.red||g.black){impMasterMode=true;document.getElementById('impModeMaster').click();
+      if(g.red)document.getElementById('impRed').value=g.red;
+      if(g.black)document.getElementById('impBlack').value=g.black;
+      if(g.year)document.getElementById('impYear').value=g.year;
+      if(g.event)document.getElementById('impEvent').value=g.event;}
+  } else if(isJSON(raw)){
+    try{const g=parseJSONGame(raw);tokens=g.notations;meta2=g;}catch(e){msg.textContent='JSON 解析失敗：'+e.message;msg.classList.add('err');return;}
+    if(!tokens||tokens.length<2){msg.textContent='JSON 內無有效著法';msg.classList.add('err');return;}
+  } else if(isFEN(raw)){
+    // FEN 是單一局面，載入到棋盤分析而非棋譜
+    const fp=piecesFromFEN(raw);
+    currentMoves=[];currentIndex=0;
+    __fenPieces=fp;
+    renderBoardFromPieces(fp);
+    msg.innerHTML='✔ 已載入 FEN 盤面到棋盤（可至 AI 分頁分析）';msg.classList.add('ok');
+    document.getElementById('impText').value='';
+    gotoTab('home');
+    return;
+  } else if(isWXF(raw)){
+    tokens=parseWXF(raw);
+    if(tokens.length<2){msg.textContent='WXF 棋譜解析失敗，請確認完整複製';msg.classList.add('err');return;}
+  } else if(isICCS(raw)){
+    tokens=parseICCS(raw);
+    if(tokens.length<2){msg.textContent='ICCS 棋譜解析失敗';msg.classList.add('err');return;}
+  } else {
+    tokens=tokenizeRecord(raw);
+    if(tokens.length<2){msg.textContent='無法辨識著法，請確認格式（支援中文/東萍/WXF/ICCS/PGN/FEN/JSON）';msg.classList.add('err');return;}
+  }
+
   let side,cat,why='手動指定';
   const ch=document.getElementById('impCategory').value;
   if(ch==='auto'){const r=autoClassify(tokens);if(r){side=r.side;cat=r.cat;why=r.why;}else{side='先手';cat='匯入棋譜（未分類）';why='未能判斷，放入未分類';}}
@@ -1600,6 +2124,8 @@ document.getElementById('btnDoImport').addEventListener('click',()=>{
     const year=document.getElementById('impYear').value.trim();
     const event=document.getElementById('impEvent').value.trim();
     meta={master:true, red, black, year, event};
+    if(dhtml&&dhtml.result)meta.result=dhtml.result;
+    if(meta2&&meta2.result)meta.result=meta2.result;
     name=document.getElementById('impName').value.trim() ||
          ((red||black)?(red||'紅')+' 對 '+(black||'黑'):'大師對局') + (year?('（'+year+'）'):'');
   } else {
@@ -1609,7 +2135,8 @@ document.getElementById('btnDoImport').addEventListener('click',()=>{
   const r=addImportedGame(side,cat,name,tokens,true,meta);
   if(!r.ok){msg.textContent='解析失敗：'+r.err;msg.classList.add('err');return;}
   const tagTxt=impMasterMode?'👑 大師對局':'棋譜';
-  msg.innerHTML='✔ '+tagTxt+'匯入成功，分類至 <b>'+side+'｜'+cat+'</b>（'+why+'）';msg.classList.add('ok');
+  const extra=dhtml?('　（已自動解析東萍格式 '+tokens.length+' 步）'):'';
+  msg.innerHTML='✔ '+tagTxt+'匯入成功，分類至 <b>'+side+'｜'+cat+'</b>（'+why+'）'+extra;msg.classList.add('ok');
   document.getElementById('impText').value='';document.getElementById('impName').value='';
   if(impMasterMode){['impRed','impBlack','impYear','impEvent'].forEach(id=>document.getElementById(id).value='');}
   refreshImportCats();
@@ -1627,11 +2154,54 @@ document.getElementById('dImport').addEventListener('click',()=>{closeDrawer();g
 document.getElementById('dExport').addEventListener('click',()=>{
   closeDrawer();
   const arr=recording?recordedMoves:currentMoves;
+  const idx=recording?recordedMoves.length:currentIndex;
   if(!arr.length){toast('目前沒有棋譜可匯出');return;}
-  const txt=arr.map((m,i)=>(i+1)+'.'+m.notation).join(' ');
-  openExternal('data:text/plain;charset=utf-8,'+encodeURIComponent(txt));
-  showLinkFallback&&showLinkFallback(txt);
+  showExportPanel(arr, idx);
 });
+
+function movesToICCS(arr){
+  // 中文記譜→座標→ICCS。用 computeBoardAt 逐步取得起訖座標
+  const out=[];
+  for(let i=0;i<arr.length;i++){
+    const mv=arr[i];
+    const fc=mv.from[0], fr=mv.from[1], tc=mv.to[0], tr=mv.to[1];
+    const f=String.fromCharCode(97+fc)+(9-fr);
+    const t=String.fromCharCode(97+tc)+(9-tr);
+    out.push(f+'-'+t);
+  }
+  return out.join(' ');
+}
+function showExportPanel(arr, idx){
+  const zhonly=arr.map((m,i)=>(i+1%2===1?'':'')+m.notation);
+  const zh=arr.map((m,i)=>((i%2===0)?(Math.floor(i/2)+1)+'. ':'')+m.notation+(i%2===0?' ':'  ')).join('').trim();
+  const iccs=movesToICCS(arr);
+  const pieces=computeBoardAt(idx,arr);
+  const stm=idx%2===0?'w':'b';
+  const fen=fenFromPosition(pieces, stm);
+  const json=JSON.stringify({notations:arr.map(m=>m.notation), fen}, null, 0);
+  const overlay=document.createElement('div');
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:400;display:flex;align-items:flex-end;justify-content:center';
+  const panel=document.createElement('div');
+  panel.style.cssText='background:var(--surface);width:100%;max-width:560px;border-radius:16px 16px 0 0;padding:18px 16px calc(18px + var(--safe-bottom));max-height:80vh;overflow-y:auto';
+  panel.innerHTML='<h3 style="margin-bottom:12px">📤 匯出棋譜</h3>';
+  const fmts=[['中文記譜',zh],['ICCS 座標',iccs],['FEN 盤面',fen],['JSON',json]];
+  fmts.forEach(([label,val])=>{
+    const wrap=document.createElement('div');wrap.style.cssText='margin-bottom:12px';
+    wrap.innerHTML='<div style="font-size:.78rem;font-weight:600;color:var(--on-surface-variant);margin-bottom:4px">'+label+'</div>';
+    const ta=document.createElement('textarea');ta.className='field';ta.rows=label==='JSON'?3:2;ta.readOnly=true;ta.value=val;ta.style.marginBottom='4px';
+    wrap.appendChild(ta);
+    const cp=document.createElement('button');cp.textContent='複製 '+label;cp.style.cssText='padding:7px 14px;border:none;border-radius:8px;background:var(--surface-variant);color:var(--on-surface);font-size:.78rem;cursor:pointer';
+    cp.addEventListener('click',()=>{ta.select();ta.setSelectionRange(0,99999);let ok=false;try{ok=document.execCommand('copy');}catch(e){}if(!ok&&navigator.clipboard)navigator.clipboard.writeText(val).catch(()=>{});cp.textContent='✔ 已複製';setTimeout(()=>cp.textContent='複製 '+label,1500);});
+    wrap.appendChild(cp);
+    panel.appendChild(wrap);
+  });
+  const close=document.createElement('button');close.textContent='關閉';close.style.cssText='width:100%;padding:12px;border:none;border-radius:10px;background:var(--primary);color:#fff;font-size:.9rem;font-weight:600;cursor:pointer;margin-top:6px';
+  close.addEventListener('click',()=>overlay.remove());
+  panel.appendChild(close);
+  overlay.appendChild(panel);
+  overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+  document.body.appendChild(overlay);
+}
 
 /* ============ 說明收合 ============ */
 document.getElementById('descToggle').addEventListener('click',()=>{
@@ -1659,7 +2229,28 @@ function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t
 
 /* ============ 啟動 ============ */
 refreshImportCats();
-(function(){try{const raw=localStorage.getItem('xiangqi_imported_games');if(raw){const saved=JSON.parse(raw);saved.forEach(g=>addImportedGame(g.side,g.cat,g.name,g.tokens,false,g.meta||null));importedGames=saved;refreshImportCats();}}catch(e){}})();
+(async function restoreGames(){
+  await idbOpen();
+  let restored=null;
+  if(__idbReady){
+    const all=await idbGetAll();
+    if(all&&all.length){ restored=all.map(g=>({side:g.side,cat:g.cat,name:g.name,tokens:g.tokens,meta:g.meta||null})); }
+  }
+  // IndexedDB 沒資料 → 從 localStorage 遷移
+  if(!restored){
+    try{const raw=localStorage.getItem('xiangqi_imported_games');if(raw)restored=JSON.parse(raw);}catch(e){}
+    if(restored&&restored.length&&__idbReady){
+      // 遷移到 IndexedDB
+      for(const g of restored)await idbPut({side:g.side,cat:g.cat,name:g.name,tokens:g.tokens,meta:g.meta||null,side_cat:g.side+'|'+g.cat});
+    }
+  }
+  if(restored&&restored.length){
+    restored.forEach(g=>addImportedGame(g.side,g.cat,g.name,g.tokens,false,g.meta||null));
+    importedGames=restored;
+    refreshImportCats();
+    if(document.getElementById('savedList'))renderSavedList();
+  }
+})();
 // 預設載入第一個開局
 curCat=Object.keys(DATA['先手'])[0];
 loadLine('先手',curCat,0);
